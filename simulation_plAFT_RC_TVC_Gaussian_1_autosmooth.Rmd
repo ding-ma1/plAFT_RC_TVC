@@ -1,0 +1,464 @@
+---
+title: "simulation_plAFT_RC_TVC_Gaussian_1_autosmooth"
+author: "Ding Ma"
+date: "17/09/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+# Function for calculating average treatment proportion (not necessary)
+```{r}
+average_censoring_proportion_datagen_RC_TVC_discrete <- function(n = 100, beta = c(1,0.2), gamma = -1.5, t_treat_min = 0, t_treat_max = 1.2, c_min = 0, c_max = 1, datagen_option = "RC_TVC", repeats = 300L, set_seed_from = 1L) {
+  is.naturalnumber <- function(x, tol = .Machine$double.eps) {x > tol & abs(x - round(x)) < tol}
+  if (!is.naturalnumber(set_seed_from)) {
+    stop("set_seed_from must be a natural number!")
+  }
+
+  source("datagen_RC_TVC_discrete_1.R")
+  iteration_nos = rep(NA, times = repeats)
+  ranges_t = matrix(NA, nrow = repeats, ncol = 2L)
+  ranges_y = matrix(NA, nrow = repeats, ncol = 2L)
+  censor_props = rep(NA, times = repeats)
+  repeats_and_seeds = matrix(NA, nrow = repeats, ncol = 2L)
+  colnames(repeats_and_seeds) <- c("repeat no.","seed no.")
+
+  if (datagen_option=="RC_TVC") {
+    treat_props = rep(NA, times = repeats)
+    event_treated_props = rep(NA, times = repeats)
+  }
+
+  for (i in 1:repeats) {
+    set.seed(i+set_seed_from-1L)
+    # cat("Repeat",i,", set.seed(",i+set_seed_from-1L,"), begins.\n")
+    if (datagen_option=="RC") {
+      data_RC_TVC = datagen_RC_TVC_discrete_1(n = n, beta = beta, gamma = gamma, t_treat_min = t_treat_min, t_treat_max = t_treat_max, c_min = c_min, c_max = c_max, datagen_option = datagen_option)
+    }
+    else if (datagen_option=="RC_TVC") {
+      data_RC_TVC = datagen_RC_TVC_discrete_1(n = n, beta = beta, gamma = gamma, t_treat_min = t_treat_min, t_treat_max = t_treat_max, c_min = c_min, c_max = c_max, datagen_option = datagen_option)
+      while (data_RC_TVC$event_treated_prop==0) {
+        set_seed_from = set_seed_from + 1
+        set.seed(i+set_seed_from-1L)
+        warning("The seed is reset to ",i+set_seed_from-1L,".\n")
+        data_RC_TVC = datagen_RC_TVC_discrete_1(n = n, beta = beta, gamma = gamma, t_treat_min = t_treat_min, t_treat_max = t_treat_max, c_min = c_min, c_max = c_max, datagen_option = datagen_option)
+      }
+      treat_props[i] = data_RC_TVC$treat_prop
+      event_treated_props[i] = data_RC_TVC$event_treated_prop
+    }
+    repeats_and_seeds[i,] = c(i, i+set_seed_from-1L)
+
+    ranges_t[i,] = data_RC_TVC$range_t
+    ranges_y[i,] = data_RC_TVC$range_y
+    censor_props[i] = data_RC_TVC$censor_prop
+    if (datagen_option=="RC_TVC") {
+      treat_props[i] = data_RC_TVC$treat_prop
+    event_treated_props[i] = data_RC_TVC$event_treated_prop
+    }
+  }
+
+  avg_ranges_t = colMeans(ranges_t)
+  avg_ranges_y = colMeans(ranges_y)
+  avg_censor_props = mean(censor_props)
+
+  if (datagen_option=="RC_TVC") {
+    avg_treat_props = mean(treat_props)
+    avg_event_treated_props = mean(event_treated_props)
+    return(list(ranges_t=ranges_t,ranges_y=ranges_y,censor_props=censor_props,treat_props=treat_props,event_treated_props=event_treated_props,avg_ranges_t=avg_ranges_t,avg_ranges_y=avg_ranges_y,avg_censor_props=avg_censor_props,avg_treat_props=avg_treat_props,avg_event_treated_props=avg_event_treated_props,repeats_and_seeds=repeats_and_seeds))
+  }
+  else {
+    return(list(ranges_t=ranges_t,ranges_y=ranges_y,censor_props=censor_props,avg_ranges_t=avg_ranges_t,avg_ranges_y=avg_ranges_y,avg_censor_props=avg_censor_props,repeats_and_seeds=repeats_and_seeds))
+  }
+}
+```
+
+## Scripts to test avereage censoring proportions (not necessary)
+```{r}
+datagen_test = average_censoring_proportion_datagen_RC_TVC_discrete(n=1000, beta=c(-1,1), gamma=-0.1, t_treat_min=0, t_treat_max=1, c_min=0, c_max=3.5, datagen_option="RC_TVC",repeats = 500) # c_max=17/3.5
+
+
+cat("the range of event time is",datagen_test$avg_ranges_t,"\n")
+cat("the range of follow up time is",datagen_test$avg_ranges_y,"\n")
+cat("average censoring proportion =",datagen_test$avg_censor_props,"\n")
+cat("average treatment proportion =",datagen_test$avg_treat_props,"\n")
+cat("average event-treated proportion =",datagen_test$avg_event_treated_props,"(need to be not too small to provide enough information for gamma estimation)\n")
+```
+
+
+
+# Simulation function `simulation_RC_TVC_Gaussian_1` (necessary)
+Click the "Run Current Chunk" button to source this simulation function
+```{r}
+simulation_RC_TVC_Gaussian_1 <- function(n = n, beta = beta, gamma = gamma, t_treat_min, t_treat_max, c_min, c_max, datagen_option = "RC_TVC", numIntKnt = 3, maxiter = 3000L, repeats = 500L, set_seed_from = 1L, smooth_initial = 1e-6, autosmooth_no = 5, threshold = 1e-6, knots_min_quantile = 2.5, knots_max_quantile = 97.5, sig_coverage = 0.6, Hes_addition = 0, knots_fix_threshold = 1e-3, knots_fix_iter_no = 3000L, frequent_knots_update = TRUE, X_option = 2, knots_option = "equal_space", gamma_Hessian_option = "modified", draw_plot = FALSE, plot_sig_lv = 0.05) {
+
+  is.naturalnumber <- function(x, tol = .Machine$double.eps^0.5) {x > tol & abs(x - round(x)) < tol}
+  if (!is.naturalnumber(set_seed_from)) {
+    stop("set_seed_from must be a natural number!")
+  }
+  
+  source("datagen_RC_TVC_discrete_1.R")
+  source("plAFT_RC_TVC_Gaussian_1_autosmooth.R")
+  
+  smooth_hats = rep(NA, times = repeats)
+  
+  beta_hats = matrix(NA, nrow = repeats, ncol = length(as.vector(beta)))
+  theta_hats = matrix(NA, nrow = repeats, ncol = numIntKnt+2) # used in plotting
+  
+  last_gradients_beta = matrix(NA, nrow = repeats, ncol = length(as.vector(beta)))
+  last_gradients_theta = matrix(NA, nrow = repeats, ncol = numIntKnt+2)
+  
+  asym_std_betas = matrix(NA, nrow = repeats, ncol = length(as.vector(beta)))
+  asym_std_thetas = matrix(NA, nrow = repeats, ncol = numIntKnt+2)
+  
+  runtimes_RC_TVC = rep(NA, times = repeats)
+  iteration_nos = rep(NA, times = repeats)
+  ranges_t = matrix(NA, nrow = repeats, ncol = 2L)
+  ranges_y = matrix(NA, nrow = repeats, ncol = 2L)
+  censor_props = rep(NA, times = repeats)
+  repeats_and_seeds = matrix(NA, nrow = repeats, ncol = 2L)
+  colnames(repeats_and_seeds) <- c("repeat no.","seed no.")
+  refitted_repeats = NULL
+  
+  if (datagen_option=="RC_TVC") {
+    gamma_hats = matrix(NA, nrow = repeats, ncol = length(as.vector(gamma)))
+    last_gradients_gamma = matrix(NA, nrow = repeats, ncol = length(as.vector(gamma)))
+    asym_std_gammas = matrix(NA, nrow = repeats, ncol = length(as.vector(gamma)))
+    treat_props = rep(NA, times = repeats)
+    event_treated_props = rep(NA, times = repeats)
+  }
+  
+  multiples_ts_time = rep(NA, times = repeats)
+  time_ranges = matrix(NA, nrow = repeats, ncol = 4L) # column 3,4 used in plotting
+  last_knots = matrix(NA, nrow = repeats, ncol = numIntKnt+2) # used in plotting
+  last_sigs = matrix(NA, nrow = repeats, ncol = numIntKnt+2) # used in plotting
+  smooth_iters = NULL
+  true_n_knots = rep(NA, times = repeats) # used in plotting
+  indices_active_theta = matrix(FALSE, nrow = repeats, ncol = numIntKnt+2) # used in plotting
+  
+  simulation_results = list() # used in plotting
+  
+  ############################## simulation part ##############################
+  cat("Simulation begins.\n")
+  for (i in 1:repeats) {
+    
+    set.seed(i+set_seed_from-1L)
+    cat("Repeat",i,", set.seed(",i+set_seed_from-1L,"), begins.\n")
+    if (datagen_option=="RC") {
+      data_RC_TVC = datagen_RC_TVC_discrete_1(n = n, beta = beta, gamma = gamma, t_treat_min = t_treat_min, t_treat_max = t_treat_max, c_min = c_min, c_max = c_max, datagen_option = datagen_option)
+    }
+    else if (datagen_option=="RC_TVC") {
+      data_RC_TVC = datagen_RC_TVC_discrete_1(n = n, beta = beta, gamma = gamma, t_treat_min = t_treat_min, t_treat_max = t_treat_max, c_min = c_min, c_max = c_max, datagen_option = datagen_option)
+      while (data_RC_TVC$event_treated_prop==0) {
+        set_seed_from = set_seed_from + 1
+        set.seed(i+set_seed_from-1L)
+        warning("The seed is reset to ",i+set_seed_from-1L,".\n")
+        data_RC_TVC = datagen_RC_TVC_discrete_1(n = n, beta = beta, gamma = gamma, t_treat_min = t_treat_min, t_treat_max = t_treat_max, c_min = c_min, c_max = c_max, datagen_option = datagen_option)
+      }
+      treat_props[i] = data_RC_TVC$treat_prop
+      event_treated_props[i] = data_RC_TVC$event_treated_prop
+    }
+    ranges_t[i,] = data_RC_TVC$range_t
+    ranges_y[i,] = data_RC_TVC$range_y
+    censor_props[i] = data_RC_TVC$censor_prop
+    repeats_and_seeds[i,] = c(i, i+set_seed_from-1L)
+    
+    results_RC_TVC = list() # to avoid object not found issue
+    results_RC_TVC$asym_std_beta = NA # to avoid object not found issue
+    results_RC_TVC$asym_std_gamma = NA # to avoid object not found issue
+    if (datagen_option=="RC_TVC") {
+      try({runtimes_RC_TVC[i] = system.time(results_RC_TVC <- plAFT_RC_TVC_Gaussian_1_autosmooth(tmat = data_RC_TVC$tmat, Xmat = data_RC_TVC$Xmat, Zmat = data_RC_TVC$Zmat, beta_initial = c(0,0), gamma_initial = 0, smooth_initial = smooth_initial, autosmooth_no = autosmooth_no, numIntKnt = numIntKnt, maxiter = maxiter, threshold = threshold, knots_min_quantile = knots_min_quantile, knots_max_quantile = knots_max_quantile, sig_coverage = sig_coverage, Hes_addition = Hes_addition, knots_fix_threshold = knots_fix_threshold, knots_fix_iter_no = knots_fix_iter_no, frequent_knots_update = frequent_knots_update, eta = 3e-1, X_option = X_option, knots_option = knots_option, gamma_Hessian_option = gamma_Hessian_option, draw_plot = draw_plot, plot_sig_lv = plot_sig_lv))[3]})
+      if (any(is.na(c(runtimes_RC_TVC[i],results_RC_TVC$asym_std_beta,results_RC_TVC$asym_std_gamma)))) {
+        warning("Repeat",i,", set.seed(",i+set_seed_from-1L,"), encounter a numerical error, the same data set is re-fitted with 1 fewer basis function.\n")
+        try({runtimes_RC_TVC[i] = system.time(results_RC_TVC <- plAFT_RC_TVC_Gaussian_1_autosmooth(tmat = data_RC_TVC$tmat, Xmat = data_RC_TVC$Xmat, Zmat = data_RC_TVC$Zmat, beta_initial = c(0,0), gamma_initial = 0, smooth_initial = smooth_initial, autosmooth_no = autosmooth_no, numIntKnt = numIntKnt-1, maxiter = maxiter, threshold = threshold, knots_min_quantile = knots_min_quantile, knots_max_quantile = knots_max_quantile, sig_coverage = sig_coverage, Hes_addition = Hes_addition, knots_fix_threshold = knots_fix_threshold, knots_fix_iter_no = knots_fix_iter_no, frequent_knots_update = frequent_knots_update, eta = 3e-1, X_option = X_option, knots_option = knots_option, gamma_Hessian_option = gamma_Hessian_option, draw_plot = draw_plot, plot_sig_lv = plot_sig_lv))[3]})
+        refitted_repeats = rbind(refitted_repeats, c(i, i+set_seed_from-1L, numIntKnt-1+2))
+      }
+      if (any(is.na(c(runtimes_RC_TVC[i],results_RC_TVC$asym_std_beta,results_RC_TVC$asym_std_gamma)))) {
+        warning("Repeat",i,", set.seed(",i+set_seed_from-1L,"), encounter a numerical error again, the same data set is re-fitted with 2 fewer basis functions in total.\n")
+        try({runtimes_RC_TVC[i] = system.time(results_RC_TVC <- plAFT_RC_TVC_Gaussian_1_autosmooth(tmat = data_RC_TVC$tmat, Xmat = data_RC_TVC$Xmat, Zmat = data_RC_TVC$Zmat, beta_initial = c(0,0), gamma_initial = 0, smooth_initial = smooth_initial, autosmooth_no = autosmooth_no, numIntKnt = numIntKnt-2, maxiter = maxiter, threshold = threshold, knots_min_quantile = knots_min_quantile, knots_max_quantile = knots_max_quantile, sig_coverage = sig_coverage, Hes_addition = Hes_addition, knots_fix_threshold = knots_fix_threshold, knots_fix_iter_no = knots_fix_iter_no, frequent_knots_update = frequent_knots_update, eta = 3e-1, X_option = X_option, knots_option = knots_option, gamma_Hessian_option = gamma_Hessian_option, draw_plot = draw_plot, plot_sig_lv = plot_sig_lv))[3]})
+        refitted_repeats = rbind(refitted_repeats, c(i, i+set_seed_from-1L, numIntKnt-2+2))
+      }
+    }
+    else {
+      try({runtimes_RC_TVC[i] = system.time(results_RC_TVC <- plAFT_RC_TVC_Gaussian_1_autosmooth(tmat = data_RC_TVC$tmat, Xmat = data_RC_TVC$Xmat, beta_initial = c(0,0), smooth_initial = smooth_initial, autosmooth_no = autosmooth_no, numIntKnt = numIntKnt, maxiter = maxiter, threshold = threshold, knots_min_quantile = knots_min_quantile, knots_max_quantile = knots_max_quantile, sig_coverage = sig_coverage, Hes_addition = Hes_addition, knots_fix_threshold = knots_fix_threshold, knots_fix_iter_no = knots_fix_iter_no, frequent_knots_update = frequent_knots_update, eta = 3e-1, X_option = X_option, knots_option = knots_option, draw_plot = draw_plot, plot_sig_lv = plot_sig_lv))[3]})
+      if (any(is.na(c(runtimes_RC_TVC[i],results_RC_TVC$asym_std_beta)))) {
+        warning("Repeat",i,", set.seed(",i+set_seed_from-1L,"), encounter a numerical error, the same data set is re-fitted with 1 fewer basis function.\n")
+        try({runtimes_RC_TVC[i] = system.time(results_RC_TVC <- plAFT_RC_TVC_Gaussian_1_autosmooth(tmat = data_RC_TVC$tmat, Xmat = data_RC_TVC$Xmat, beta_initial = c(0,0), smooth_initial = smooth_initial, autosmooth_no = autosmooth_no, numIntKnt = numIntKnt-1, maxiter = maxiter, threshold = threshold, knots_min_quantile = knots_min_quantile, knots_max_quantile = knots_max_quantile, sig_coverage = sig_coverage, Hes_addition = Hes_addition, knots_fix_threshold = knots_fix_threshold, knots_fix_iter_no = knots_fix_iter_no, frequent_knots_update = frequent_knots_update, eta = 3e-1, X_option = X_option, knots_option = knots_option, draw_plot = draw_plot, plot_sig_lv = plot_sig_lv))[3]})
+        refitted_repeats = rbind(refitted_repeats, c(i, i+set_seed_from-1L, numIntKnt-1+2))
+      }
+      if (any(is.na(c(runtimes_RC_TVC[i],results_RC_TVC$asym_std_beta)))) {
+        warning("Repeat",i,", set.seed(",i+set_seed_from-1L,"), encounter a numerical error again, the same data set is re-fitted with 2 fewer basis functions in total.\n")
+        try({runtimes_RC_TVC[i] = system.time(results_RC_TVC <- plAFT_RC_TVC_Gaussian_1_autosmooth(tmat = data_RC_TVC$tmat, Xmat = data_RC_TVC$Xmat, beta_initial = c(0,0), smooth_initial = smooth_initial, autosmooth_no = autosmooth_no, numIntKnt = numIntKnt-2, maxiter = maxiter, threshold = threshold, knots_min_quantile = knots_min_quantile, knots_max_quantile = knots_max_quantile, sig_coverage = sig_coverage, Hes_addition = Hes_addition, knots_fix_threshold = knots_fix_threshold, knots_fix_iter_no = knots_fix_iter_no, frequent_knots_update = frequent_knots_update, eta = 3e-1, X_option = X_option, knots_option = knots_option, draw_plot = draw_plot, plot_sig_lv = plot_sig_lv))[3]})
+        refitted_repeats = rbind(refitted_repeats, c(i, i+set_seed_from-1L, numIntKnt-2+2))
+      }
+    }
+    # if ((i+set_seed_from-1L)==14) {browser()}
+    
+    beta_hats[i,] = t(results_RC_TVC$beta_hat)
+    asym_std_betas[i,] = t(results_RC_TVC$asym_std_beta)
+    last_gradients_beta[i,] = as.matrix(results_RC_TVC$grad_beta_iter)[nrow(as.matrix(results_RC_TVC$grad_beta_iter)),]
+    smooth_hats[i] = results_RC_TVC$smooth_hat
+    
+    
+    if (datagen_option=="RC_TVC") {
+      if (is.null(results_RC_TVC$gamma_hat)) {
+        gamma_hats[i,] = rep(NA, times = length(as.vector(gamma)))
+        asym_std_gammas[i,] = rep(NA, times = length(as.vector(gamma)))
+        last_gradients_gamma[i,] = rep(NA, times = length(as.vector(gamma)))
+      }
+      else {
+        gamma_hats[i,] = t(results_RC_TVC$gamma_hat)
+        asym_std_gammas[i,] = t(results_RC_TVC$asym_std_gamma)
+        last_gradients_gamma[i,] = as.matrix(results_RC_TVC$grad_gamma_iter)[nrow(as.matrix(results_RC_TVC$grad_gamma_iter)),]
+      }
+    }
+    true_n_knots[i] = length(results_RC_TVC$theta_hat) # used in plotting
+    if (length(results_RC_TVC$index_active_theta) != 0) {
+      indices_active_theta[i,results_RC_TVC$index_active_theta] = TRUE # used in plotting
+    }
+    theta_hats[i,1:true_n_knots[i]] = t(results_RC_TVC$theta_hat) # used in plotting
+    asym_std_thetas[i,1:true_n_knots[i]] = t(results_RC_TVC$asym_std_theta)
+    last_gradients_theta[i,1:true_n_knots[i]] = as.matrix(results_RC_TVC$grad_theta_iter)[nrow(as.matrix(results_RC_TVC$grad_theta_iter)),]
+    
+    multiples_ts_time[i] = results_RC_TVC$multiple_ts_time
+    time_ranges[i,] = c(t(results_RC_TVC$time_range)) # used in plotting
+    last_knots[i,1:true_n_knots[i]] = results_RC_TVC$knots_iter[nrow(results_RC_TVC$knots_iter),] # used in plotting
+    last_sigs[i,1:true_n_knots[i]] = results_RC_TVC$sig_iter[nrow(results_RC_TVC$sig_iter),] # used in plotting
+    
+    simulation_results$cov_mats_theta[[i]] = results_RC_TVC$cov_mat_theta # used in plotting
+    smooth_iters = rbind(smooth_iters,cbind(rep(i,nrow(results_RC_TVC$smooth_iter)),results_RC_TVC$smooth_iter))
+    iteration_nos[i] = results_RC_TVC$iteration_no
+    
+    cat("Repeat",i,", set.seed(",i+set_seed_from-1L,"), takes",runtimes_RC_TVC[i],"seconds.\n")
+    # }, error=function(e){print(e)})
+  }
+  names(simulation_results$cov_mats_theta) <- c(sprintf("repeat_%d", 1:repeats)) # used in plotting
+  colnames(smooth_iters) <- c("repeat index","inner loop index","smoothing parameter")
+  if (!is.null(refitted_repeats)) {colnames(refitted_repeats) <- c("repeat no.","seed no.","num_basis")}
+  
+  ######################### for testing datagen_RC_TVC_discrete.R, comment this part in real simulation #########################
+  avg_ranges_t = colMeans(ranges_t, na.rm = TRUE)
+  avg_ranges_y = colMeans(ranges_y, na.rm = TRUE)
+  avg_censor_props = mean(censor_props, na.rm = TRUE)
+  if (datagen_option=="RC_TVC") {
+    avg_treat_props = mean(treat_props, na.rm = TRUE)
+    avg_event_treated_props = mean(event_treated_props, na.rm = TRUE)
+  }
+  
+  ############################## results part ##############################
+  asym_std_betas_avg = colMeans(asym_std_betas, na.rm = TRUE)
+  if (datagen_option=="RC_TVC") {
+    asym_std_gammas_avg = colMeans(asym_std_gammas, na.rm = TRUE)
+  }
+  
+  repeats_without_NA = sum(!is.na(iteration_nos))
+  repeats_number_noNA = which(!is.na(iteration_nos))
+  # results of beta_hats (for beta_1 and beta_2)
+  mean_beta_hats = colMeans(beta_hats, na.rm = TRUE)
+  bias_beta_hats = beta - mean_beta_hats
+  mcsd_beta_hats = sqrt(1/(repeats_without_NA-1) * colSums((beta_hats[repeats_number_noNA,] - matrix(1,nrow = repeats_without_NA,ncol = 1)%*%mean_beta_hats)^2))
+  mse_beta_hats = bias_beta_hats^2 + mcsd_beta_hats^2
+  cp_beta_hats_mcsd = colMeans(((matrix(1,repeats_without_NA,1)%*%t(beta)) > (beta_hats[repeats_number_noNA,]-1.96*matrix(1,repeats_without_NA,1)%*%t(mcsd_beta_hats))) & ((matrix(1,repeats_without_NA,1)%*%t(beta)) < (beta_hats[repeats_number_noNA,]+1.96*matrix(1,repeats_without_NA,1)%*%t(mcsd_beta_hats))))
+  cp_beta_hats_asym = colMeans(((matrix(1,repeats_without_NA,1)%*%t(beta)) > (beta_hats[repeats_number_noNA,]-1.96*asym_std_betas[repeats_number_noNA,])) & ((matrix(1,repeats_without_NA,1)%*%t(beta)) < (beta_hats[repeats_number_noNA,]+1.96*asym_std_betas[repeats_number_noNA,])))
+  
+  table_beta = rbind(mean_beta_hats,bias_beta_hats,mcsd_beta_hats,asym_std_betas_avg,mse_beta_hats,cp_beta_hats_mcsd,cp_beta_hats_asym)
+  
+  if (datagen_option=="RC_TVC") {
+    mean_gamma_hats = colMeans(gamma_hats, na.rm = TRUE)
+    bias_gamma_hats = gamma - mean_gamma_hats
+    mcsd_gamma_hats = sqrt(1/(repeats_without_NA-1) * colSums((gamma_hats[repeats_number_noNA,] - matrix(1,nrow = repeats_without_NA,ncol = 1)%*%mean_gamma_hats)^2))
+    mse_gamma_hats = bias_gamma_hats^2 + mcsd_gamma_hats^2
+    cp_gamma_hats_mcsd = colMeans(((matrix(1,repeats_without_NA,1)*gamma) > (gamma_hats[repeats_number_noNA,]-1.96*matrix(1,repeats_without_NA,1)*mcsd_gamma_hats)) & ((matrix(1,repeats_without_NA,1)*gamma) < (gamma_hats[repeats_number_noNA,]+1.96*matrix(1,repeats_without_NA,1)*mcsd_gamma_hats)))
+    
+    cp_gamma_hats_asym = colMeans(((matrix(1,repeats_without_NA,1)*gamma) > (gamma_hats[repeats_number_noNA,]-1.96*asym_std_gammas[repeats_number_noNA,])) & ((matrix(1,repeats_without_NA,1)*gamma) < (gamma_hats[repeats_number_noNA,]+1.96*asym_std_gammas[repeats_number_noNA,])))
+    
+    table_gamma = rbind(mean_gamma_hats,bias_gamma_hats,mcsd_gamma_hats,asym_std_gammas_avg,mse_gamma_hats,cp_gamma_hats_mcsd,cp_gamma_hats_asym)
+  }
+  
+  # further results
+  total_time_hour = sum(runtimes_RC_TVC, na.rm = TRUE)/3600
+  
+  avg_multiples_ts_time = mean(multiples_ts_time)
+  decelerated_repeats = which(multiples_ts_time>1)
+  if (length(decelerated_repeats)>0) {
+    warning("The range of the decelerated time is, in average, ",avg_multiples_ts_time," times that of the original time!\n",length(decelerated_repeats)," repeats are decelereated cases. The repeat numbers are ",decelerated_repeats,".\n")
+  }
+  
+  non_converged_repeats = which(iteration_nos==maxiter)
+  if (length(non_converged_repeats)>0) {
+    warning(length(non_converged_repeats)," repeats don't meet the stopping criteria. The repeat numbers are ",non_converged_repeats,".\n")
+  }
+  
+  error_repeats = which(is.na(iteration_nos))
+  if (length(error_repeats)>0) {
+    warning(length(error_repeats)," repeats cause error in fitting. The repeat numbers are ",error_repeats,".\n")
+  }
+  
+  cat("Simulation ends.\n")
+  
+  if (datagen_option=="RC_TVC") {
+    simulation_results$table_gamma=table_gamma
+    simulation_results$gamma_hats=gamma_hats
+    simulation_results$asym_std_gammas=asym_std_gammas
+    simulation_results$last_gradients_gamma=last_gradients_gamma
+    simulation_results$treat_props=treat_props
+    simulation_results$event_treated_props=event_treated_props
+    simulation_results$avg_treat_props=avg_treat_props
+    simulation_results$avg_event_treated_props=avg_event_treated_props
+  }
+  simulation_results$smooth_hats=smooth_hats
+  simulation_results$table_beta=table_beta
+  simulation_results$beta_hats=beta_hats
+  simulation_results$theta_hats=theta_hats
+  simulation_results$asym_std_betas=asym_std_betas
+  simulation_results$asym_std_thetas=asym_std_thetas
+  simulation_results$last_gradients_beta=last_gradients_beta
+  simulation_results$last_gradients_theta=last_gradients_theta
+  simulation_results$smooth_iters=smooth_iters
+  simulation_results$ranges_t=ranges_t
+  simulation_results$ranges_y=ranges_y
+  simulation_results$censor_props=censor_props
+  simulation_results$avg_ranges_t=avg_ranges_t
+  simulation_results$avg_ranges_y=avg_ranges_y
+  simulation_results$avg_censor_props=avg_censor_props
+  simulation_results$multiples_ts_time=multiples_ts_time
+  simulation_results$avg_multiples_ts_time=avg_multiples_ts_time
+  simulation_results$decelerated_repeats=decelerated_repeats
+  simulation_results$time_ranges=time_ranges
+  simulation_results$last_knots =last_knots # used in plotting
+  simulation_results$last_sigs=last_sigs # used in plotting
+  simulation_results$true_n_knots=true_n_knots # used in plotting
+  simulation_results$indices_active_theta=indices_active_theta # used in plotting
+  simulation_results$system_info=cbind(runtimes_RC_TVC,iteration_nos)
+  simulation_results$repeats_and_seeds=repeats_and_seeds
+  simulation_results$total_time_hour=total_time_hour
+  simulation_results$non_converged_repeats=non_converged_repeats
+  simulation_results$error_repeats=error_repeats
+  simulation_results$refitted_repeats=refitted_repeats
+  
+  return(simulation_results)
+}
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# Test simulations RC_TVC, beta=(-1,-1), gamma=-1, decelerated failure time case
+`_kft0.001_kfin100_fkuT`:
+`kft0.001` for `knots_fix_thereshold = 1e-3`
+`kfin100` for `knots_fix_iter_no = 100`
+`fkuT` for `frequent_knots_update = TRUE`, `fkuF` for `frequent_knots_update = FALSE`
+
+
+# Simulation scripts
+
+## n = 100, pi_censor = 0.2
+```{r}
+# 1st test 20% censoring proportion, repeat=500
+simulation_RC_TVC_n100_c0.2_seed1to500_kft0_kfin100_fkuF_equal_space_autosmooth_crs = simulation_RC_TVC_Gaussian_1(n=100, beta=c(1,-1), gamma=-0.1, t_treat_min=0, t_treat_max=1, c_min=0, c_max=2.5, datagen_option="RC_TVC", numIntKnt=max(3,round(100^(1/3)))-2, maxiter=5000, repeats=500, set_seed_from=1, smooth_initial=1e-6, autosmooth_no=5, threshold=1e-6, knots_fix_threshold=0, knots_fix_iter_no=100, frequent_knots_update=FALSE, X_option=2, knots_option="equal_space", gamma_Hessian_option="modified")
+```
+## n = 100, pi_censor = 0.6
+```{r}
+# 2nd test 60% censoring proportion, repeat=500
+simulation_RC_TVC_n100_c0.6_seed1to500_kft0_kfin100_fkuF_equal_space_autosmooth_crs = simulation_RC_TVC_Gaussian_1(n=100, beta=c(1,-1), gamma=-0.1, t_treat_min=0, t_treat_max=1, c_min=0, c_max=0.5, datagen_option="RC_TVC", numIntKnt=max(3,round(100^(1/3)))-2, maxiter=5000, repeats=500, set_seed_from=1, smooth_initial=1e-6, autosmooth_no=5, threshold=1e-6, knots_fix_threshold=0, knots_fix_iter_no=100, frequent_knots_update=FALSE, X_option=2, knots_option="equal_space", gamma_Hessian_option="modified")
+```
+## n = 100 results output a .csv file
+```{r}
+table_simulation_RC_TVC_Gaussian_1_n100_seed1to500_kft0_kfin100_fkuF_equal_space_autosmooth_crs = rbind(
+  # Simulation 1 results
+  c(simulation_RC_TVC_n100_c0.2_seed1to500_kft0_kfin100_fkuF_equal_space_autosmooth_crs$avg_treat_props,
+    cbind(simulation_RC_TVC_n100_c0.2_seed1to500_kft0_kfin100_fkuF_equal_space_autosmooth_crs$table_beta,
+          simulation_RC_TVC_n100_c0.2_seed1to500_kft0_kfin100_fkuF_equal_space_autosmooth_crs$table_gamma),
+    length(simulation_RC_TVC_n100_c0.2_seed1to500_kft0_kfin100_fkuF_equal_space_autosmooth_crs$non_converged_repeats),
+    length(simulation_RC_TVC_n100_c0.2_seed1to500_kft0_kfin100_fkuF_equal_space_autosmooth_crs$error_repeats),
+    simulation_RC_TVC_n100_c0.2_seed1to500_kft0_kfin100_fkuF_equal_space_autosmooth_crs$total_time_hour),
+  # Simulation 2 results
+  c(simulation_RC_TVC_n100_c0.6_seed1to500_kft0_kfin100_fkuF_equal_space_autosmooth_crs$avg_treat_props,
+    cbind(simulation_RC_TVC_n100_c0.6_seed1to500_kft0_kfin100_fkuF_equal_space_autosmooth_crs$table_beta,
+          simulation_RC_TVC_n100_c0.6_seed1to500_kft0_kfin100_fkuF_equal_space_autosmooth_crs$table_gamma),
+    length(simulation_RC_TVC_n100_c0.6_seed1to500_kft0_kfin100_fkuF_equal_space_autosmooth_crs$non_converged_repeats),
+    length(simulation_RC_TVC_n100_c0.6_seed1to500_kft0_kfin100_fkuF_equal_space_autosmooth_crs$error_repeats),
+    simulation_RC_TVC_n100_c0.6_seed1to500_kft0_kfin100_fkuF_equal_space_autosmooth_crs$total_time_hour)
+)
+
+write.csv(table_simulation_RC_TVC_Gaussian_1_n100_seed1to500_kft0_kfin100_fkuF_equal_space_autosmooth_crs, file = "table_simulation_RC_TVC_Gaussian_1_n100_seed1to500_kft0_kfin100_fkuF_equal_space_autosmooth_crs.csv")
+```
+
+## n = 500, pi_censor = 0.2
+```{r}
+# 1st test 20% censoring proportion, repeat=500
+simulation_RC_TVC_n500_c0.2_seed1to500_kft0_kfin100_fkuF_equal_space_autosmooth_crs = simulation_RC_TVC_Gaussian_1(n=500, beta=c(1,-1), gamma=-0.1, t_treat_min=0, t_treat_max=1, c_min=0, c_max=2.5, datagen_option="RC_TVC", numIntKnt=max(3,round(500^(1/3)))-2, maxiter=5000, repeats=500, set_seed_from=1, smooth_initial=1e-6, autosmooth_no=5, threshold=1e-6, knots_fix_threshold=0, knots_fix_iter_no=100, frequent_knots_update=FALSE, X_option=2, knots_option="equal_space", gamma_Hessian_option="modified")
+```
+## n = 500, pi_censor = 0.6
+```{r}
+# 2nd test 60% censoring proportion, repeat=500
+simulation_RC_TVC_n500_c0.6_seed1to500_kft0_kfin100_fkuF_equal_space_autosmooth_crs = simulation_RC_TVC_Gaussian_1(n=500, beta=c(1,-1), gamma=-0.1, t_treat_min=0, t_treat_max=1, c_min=0, c_max=0.5, datagen_option="RC_TVC", numIntKnt=max(3,round(500^(1/3)))-2, maxiter=5000, repeats=500, set_seed_from=1, smooth_initial=1e-6, autosmooth_no=5, threshold=1e-6, knots_fix_threshold=0, knots_fix_iter_no=100, frequent_knots_update=FALSE, X_option=2, knots_option="equal_space", gamma_Hessian_option="modified")
+```
+## n = 500 results output a .csv file
+```{r}
+table_simulation_RC_TVC_Gaussian_1_n500_seed1to500_kft0_kfin100_fkuF_equal_space_autosmooth_crs = rbind(
+  # Simulation 1 results
+  c(simulation_RC_TVC_n500_c0.2_seed1to500_kft0_kfin100_fkuF_equal_space_autosmooth_crs$avg_treat_props,
+    cbind(simulation_RC_TVC_n500_c0.2_seed1to500_kft0_kfin100_fkuF_equal_space_autosmooth_crs$table_beta,
+          simulation_RC_TVC_n500_c0.2_seed1to500_kft0_kfin100_fkuF_equal_space_autosmooth_crs$table_gamma),
+    length(simulation_RC_TVC_n500_c0.2_seed1to500_kft0_kfin100_fkuF_equal_space_autosmooth_crs$non_converged_repeats),
+    length(simulation_RC_TVC_n500_c0.2_seed1to500_kft0_kfin100_fkuF_equal_space_autosmooth_crs$error_repeats),
+    simulation_RC_TVC_n500_c0.2_seed1to500_kft0_kfin100_fkuF_equal_space_autosmooth_crs$total_time_hour),
+  # Simulation 2 results
+  c(simulation_RC_TVC_n500_c0.6_seed1to500_kft0_kfin100_fkuF_equal_space_autosmooth_crs$avg_treat_props,
+    cbind(simulation_RC_TVC_n500_c0.6_seed1to500_kft0_kfin100_fkuF_equal_space_autosmooth_crs$table_beta,
+          simulation_RC_TVC_n500_c0.6_seed1to500_kft0_kfin100_fkuF_equal_space_autosmooth_crs$table_gamma),
+    length(simulation_RC_TVC_n500_c0.6_seed1to500_kft0_kfin100_fkuF_equal_space_autosmooth_crs$non_converged_repeats),
+    length(simulation_RC_TVC_n500_c0.6_seed1to500_kft0_kfin100_fkuF_equal_space_autosmooth_crs$error_repeats),
+    simulation_RC_TVC_n500_c0.6_seed1to500_kft0_kfin100_fkuF_equal_space_autosmooth_crs$total_time_hour)
+)
+
+write.csv(table_simulation_RC_TVC_Gaussian_1_n500_seed1to500_kft0_kfin100_fkuF_equal_space_autosmooth_crs, file = "table_simulation_RC_TVC_Gaussian_1_n500_seed1to500_kft0_kfin100_fkuF_equal_space_autosmooth_crs.csv")
+```
+
+## n = 1000, pi_censor = 0.2
+```{r}
+# 1st test 20% censoring proportion, repeat=500
+simulation_RC_TVC_n1000_c0.2_seed1to500_kft0_kfin100_fkuF_equal_space_autosmooth_crs = simulation_RC_TVC_Gaussian_1(n=1000, beta=c(1,-1), gamma=-0.1, t_treat_min=0, t_treat_max=1, c_min=0, c_max=2.5, datagen_option="RC_TVC", numIntKnt=max(3,round(1000^(1/3)))-2, maxiter=5000, repeats=500, set_seed_from=1, smooth_initial=1e-6, autosmooth_no=5, threshold=1e-6, knots_fix_threshold=0, knots_fix_iter_no=100, frequent_knots_update=FALSE, X_option=2, knots_option="equal_space", gamma_Hessian_option="modified")
+```
+## n = 1000, pi_censor = 0.6
+```{r}
+# 2nd test 60% censoring proportion, repeat=500
+simulation_RC_TVC_n1000_c0.6_seed1to500_kft0_kfin100_fkuF_equal_space_autosmooth_crs = simulation_RC_TVC_Gaussian_1(n=1000, beta=c(1,-1), gamma=-0.1, t_treat_min=0, t_treat_max=1, c_min=0, c_max=0.5, datagen_option="RC_TVC", numIntKnt=max(3,round(1000^(1/3)))-2, maxiter=5000, repeats=500, set_seed_from=1, smooth_initial=1e-6, autosmooth_no=5, threshold=1e-6, knots_fix_threshold=0, knots_fix_iter_no=100, frequent_knots_update=FALSE, X_option=2, knots_option="equal_space", gamma_Hessian_option="modified")
+```
+```{r}
+source("plAFT_RC_TVC_Gaussian_1_autosmooth_simulation_plot.R")
+plAFT_RC_TVC_Gaussian_1_autosmooth_simulation_plot(simulation_results = simulation_RC_TVC_n1000_c0.6_seed1to500_kft0_kfin100_fkuF_equal_space_autosmooth_crs, n = 1000, pi_censor = 0.6, draw_hazard = TRUE, draw_survial = TRUE)
+```
+## n = 1000 results output in a .csv file
+```{r}
+table_simulation_RC_TVC_Gaussian_1_n1000_seed1to500_kft0_kfin100_fkuF_equal_space_autosmooth_crs = rbind(
+  # Simulation 1 results
+  c(simulation_RC_TVC_n1000_c0.2_seed1to500_kft0_kfin100_fkuF_equal_space_autosmooth_crs$avg_treat_props,
+    cbind(simulation_RC_TVC_n1000_c0.2_seed1to500_kft0_kfin100_fkuF_equal_space_autosmooth_crs$table_beta,
+          simulation_RC_TVC_n1000_c0.2_seed1to500_kft0_kfin100_fkuF_equal_space_autosmooth_crs$table_gamma),
+    length(simulation_RC_TVC_n1000_c0.2_seed1to500_kft0_kfin100_fkuF_equal_space_autosmooth_crs$non_converged_repeats),
+    length(simulation_RC_TVC_n1000_c0.2_seed1to500_kft0_kfin100_fkuF_equal_space_autosmooth_crs$error_repeats),
+    simulation_RC_TVC_n1000_c0.2_seed1to500_kft0_kfin100_fkuF_equal_space_autosmooth_crs$total_time_hour),
+  # Simulation 2 results
+  c(simulation_RC_TVC_n1000_c0.6_seed1to500_kft0_kfin100_fkuF_equal_space_autosmooth_crs$avg_treat_props,
+    cbind(simulation_RC_TVC_n1000_c0.6_seed1to500_kft0_kfin100_fkuF_equal_space_autosmooth_crs$table_beta,
+          simulation_RC_TVC_n1000_c0.6_seed1to500_kft0_kfin100_fkuF_equal_space_autosmooth_crs$table_gamma),
+    length(simulation_RC_TVC_n1000_c0.6_seed1to500_kft0_kfin100_fkuF_equal_space_autosmooth_crs$non_converged_repeats),
+    length(simulation_RC_TVC_n1000_c0.6_seed1to500_kft0_kfin100_fkuF_equal_space_autosmooth_crs$error_repeats),
+    simulation_RC_TVC_n1000_c0.6_seed1to500_kft0_kfin100_fkuF_equal_space_autosmooth_crs$total_time_hour)
+)
+
+write.csv(table_simulation_RC_TVC_Gaussian_1_n1000_seed1to500_kft0_kfin100_fkuF_equal_space_autosmooth_crs, file = "table_simulation_RC_TVC_Gaussian_1_n1000_seed1to500_kft0_kfin100_fkuF_equal_space_autosmooth_crs.csv")
+```

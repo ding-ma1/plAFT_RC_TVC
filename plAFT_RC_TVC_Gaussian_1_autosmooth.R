@@ -1,6 +1,6 @@
 # based on "plAFT_RC_TVC_Gaussian.R", with different strategy of calculating the knots and sigmas of Gaussian basis functions
 # search "comment" and "under construction" for special comments
-plAFT_RC_TVC_Gaussian_1_autosmooth <- function(tmat, Xmat, Zmat, beta_initial, gamma_initial, smooth_initial = 1e-3, autosmooth_no = 5, numIntKnt = 7, maxiter = 10000, threshold = 1e-6, knots_min_quantile = 1, knots_max_quantile = 99, sig_coverage = 0.6, Hes_addition = 0, knots_fix_threshold = 1e-4, knots_fix_iter_no = 10000, frequent_knots_update = TRUE, eta = 3e-1, X_option = 2, knots_option = "percentile", beta_Hessian_option = "modified", gamma_Hessian_option = "modified", draw_plot = TRUE) {
+plAFT_RC_TVC_Gaussian_1_autosmooth <- function(tmat, Xmat, Zmat, beta_initial, gamma_initial, smooth_initial = 1e-3, autosmooth_no = 5, numIntKnt = 7, maxiter = 10000, threshold = 1e-6, knots_min_quantile = 1, knots_max_quantile = 99, sig_coverage = 0.6, Hes_addition = 0, knots_fix_threshold = 1e-4, knots_fix_iter_no = 10000, frequent_knots_update = TRUE, eta = 3e-1, X_option = 2, knots_option = "equal_space", beta_Hessian_option = "modified", gamma_Hessian_option = "modified", draw_plot = FALSE, plot_sig_lv = 0.05) {
   # tmat includes two columns: 1. termination time,
   #   2. censoring indicator (censor_n=1 for event time, censor_n=0 for right-censored time).
   #
@@ -79,61 +79,77 @@ plAFT_RC_TVC_Gaussian_1_autosmooth <- function(tmat, Xmat, Zmat, beta_initial, g
   # Gaussian basis part, necessary functions to calculate the derivative and integral of Gaussian basis
   Gaussian_basis <- function(x, mean, sd) {
     if (nrow(x)==1) {
-      if (length(sd)==1) {
-        return(matrix(sapply(X = 1:(numIntKnt+2), FUN = function(i) {dnorm(x, mean[i], sd) * sd*sqrt(2*pi)}), nrow = 1))
-      }
-      else {return(matrix(sapply(X = 1:(numIntKnt+2), FUN = function(i) {dnorm(x, mean[i], sd[i]) * sd[i]*sqrt(2*pi)}), nrow = 1))}
+      # if (length(sd)==1) {
+      #   return(matrix(sapply(X = 1:(numIntKnt+2), FUN = function(i) {dnorm(x, mean[i], sd) * sd*sqrt(2*pi)}), nrow = 1))
+      # }
+      # else {
+        return(matrix(sapply(X = 1:(numIntKnt+2), FUN = function(i) {dnorm(x, mean[i], sd[i]) * sd[i]*sqrt(2*pi)}), nrow = 1))
+      # }
     }
     else {
-      if (length(sd)==1) {
-        return(sapply(X = 1:(numIntKnt+2), FUN = function(i) {dnorm(x, mean[i], sd) * sd*sqrt(2*pi)}))
-      }
-      else {return(sapply(X = 1:(numIntKnt+2), FUN = function(i) {dnorm(x, mean[i], sd[i]) * sd[i]*sqrt(2*pi)}))}
+      # if (length(sd)==1) {
+      #   return(sapply(X = 1:(numIntKnt+2), FUN = function(i) {dnorm(x, mean[i], sd) * sd*sqrt(2*pi)}))
+      # }
+      # else {
+        return(sapply(X = 1:(numIntKnt+2), FUN = function(i) {dnorm(x, mean[i], sd[i]) * sd[i]*sqrt(2*pi)}))
+      # }
     }
   }
   
-  Gaussian_basis_integ1 <- function(q, mean, sd) {
-    if (nrow(q)==1) {
-      if (length(sd)==1) {
-        return(matrix(sapply(X = 1:(numIntKnt+2), FUN = function(i) {(pnorm(q, mean[i], sd) - matrix(1, NROW(q), 1)%*%pnorm(0, mean[i], sd)) * sd*sqrt(2*pi)}), nrow = 1))
-      }
-      else {return(matrix(sapply(X = 1:(numIntKnt+2), FUN = function(i) {(pnorm(q, mean[i], sd[i]) - matrix(1, NROW(q), 1)%*%pnorm(0, mean[i], sd[i])) * sd[i]*sqrt(2*pi)}), nrow = 1))}
+  Gaussian_basis_integ1 <- function(x, mean, sd) {
+    if (nrow(x)==1) {
+      # if (length(sd)==1) {
+      #   return(matrix(sapply(X = 1:(numIntKnt+2), FUN = function(i) {(pnorm(x, mean[i], sd) - matrix(1, NROW(x), 1)%*%pnorm(0, mean[i], sd)) * sd*sqrt(2*pi)}), nrow = 1))
+      # }
+      # else {
+        return(matrix(sapply(X = 1:(numIntKnt+2), FUN = function(i) {(pnorm(x, mean[i], sd[i]) - matrix(1, NROW(x), 1)%*%pnorm(0, mean[i], sd[i])) * sd[i]*sqrt(2*pi)}), nrow = 1))
+      # }
     }
     else {
-      if (length(sd)==1) {
-        return(sapply(X = 1:(numIntKnt+2), FUN = function(i) {(pnorm(q, mean[i], sd) - matrix(1, NROW(q), 1)%*%pnorm(0, mean[i], sd)) * sd*sqrt(2*pi)}))
-      }
-      else {return(sapply(X = 1:(numIntKnt+2), FUN = function(i) {(pnorm(q, mean[i], sd[i]) - matrix(1, NROW(q), 1)%*%pnorm(0, mean[i], sd[i])) * sd[i]*sqrt(2*pi)}))}
+      # if (length(sd)==1) {
+      #   return(sapply(X = 1:(numIntKnt+2), FUN = function(i) {(pnorm(x, mean[i], sd) - matrix(1, NROW(x), 1)%*%pnorm(0, mean[i], sd)) * sd*sqrt(2*pi)}))
+      # }
+      # else {
+        return(sapply(X = 1:(numIntKnt+2), FUN = function(i) {(pnorm(x, mean[i], sd[i]) - matrix(1, NROW(x), 1)%*%pnorm(0, mean[i], sd[i])) * sd[i]*sqrt(2*pi)}))
+      # }
     }
   }
   
   Gaussian_basis_deriv1 <- function(x, mean, sd) {
     if (nrow(x)==1) {
-      if (length(sd)==1) {
-        return(matrix(sapply(X = 1:(numIntKnt+2), FUN = function(i) {-(x-mean[i])/sd^2 * dnorm(x, mean[i], sd) * sd*sqrt(2*pi)}), nrow = 1))
-      }
-      else {return(matrix(sapply(X = 1:(numIntKnt+2), FUN = function(i) {-(x-mean[i])/sd[i]^2 * dnorm(x, mean[i], sd[i]) * sd[i]*sqrt(2*pi)}), nrow = 1))}
+      # if (length(sd)==1) {
+      #   return(matrix(sapply(X = 1:(numIntKnt+2), FUN = function(i) {-(x-mean[i])/sd^2 * dnorm(x, mean[i], sd) * sd*sqrt(2*pi)}), nrow = 1))
+      # }
+      # else {
+        return(matrix(sapply(X = 1:(numIntKnt+2), FUN = function(i) {-(x-mean[i])/sd[i]^2 * dnorm(x, mean[i], sd[i]) * sd[i]*sqrt(2*pi)}), nrow = 1))
+      # }
     }
     else {
-      if (length(sd)==1) {
-        return(sapply(X = 1:(numIntKnt+2), FUN = function(i) {-(x-mean[i])/sd^2 * dnorm(x, mean[i], sd) * sd*sqrt(2*pi)}))
-      }
-      else {return(sapply(X = 1:(numIntKnt+2), FUN = function(i) {-(x-mean[i])/sd[i]^2 * dnorm(x, mean[i], sd[i]) * sd[i]*sqrt(2*pi)}))}
+      # if (length(sd)==1) {
+      #   return(sapply(X = 1:(numIntKnt+2), FUN = function(i) {-(x-mean[i])/sd^2 * dnorm(x, mean[i], sd) * sd*sqrt(2*pi)}))
+      # }
+      # else {
+        return(sapply(X = 1:(numIntKnt+2), FUN = function(i) {-(x-mean[i])/sd[i]^2 * dnorm(x, mean[i], sd[i]) * sd[i]*sqrt(2*pi)}))
+      # }
     }
   }
   
   Gaussian_basis_deriv2 <- function(x, mean, sd) {
     if (nrow(x)==1) {
-      if (length(sd)==1) {
-        return(matrix(sapply(X = 1:(numIntKnt+2), FUN = function(i) {((x-mean[i])^2/sd^4 - 1/sd^2) * dnorm(x, mean[i], sd) * sd*sqrt(2*pi)}), nrow = 1))
-      }
-      else {return(matrix(sapply(X = 1:(numIntKnt+2), FUN = function(i) {((x-mean[i])^2/sd[i]^4 - 1/sd[i]^2) * dnorm(x, mean[i], sd[i]) * sd[i]*sqrt(2*pi)}), nrow = 1))}
+      # if (length(sd)==1) {
+      #   return(matrix(sapply(X = 1:(numIntKnt+2), FUN = function(i) {((x-mean[i])^2/sd^4 - 1/sd^2) * dnorm(x, mean[i], sd) * sd*sqrt(2*pi)}), nrow = 1))
+      # }
+      # else {
+        return(matrix(sapply(X = 1:(numIntKnt+2), FUN = function(i) {((x-mean[i])^2/sd[i]^4 - 1/sd[i]^2) * dnorm(x, mean[i], sd[i]) * sd[i]*sqrt(2*pi)}), nrow = 1))
+      # }
     }
     else {
-      if (length(sd)==1) {
-        return(sapply(X = 1:(numIntKnt+2), FUN = function(i) {((x-mean[i])^2/sd^4 - 1/sd^2) * dnorm(x, mean[i], sd) * sd*sqrt(2*pi)}))
-      }
-      else {return(sapply(X = 1:(numIntKnt+2), FUN = function(i) {((x-mean[i])^2/sd[i]^4 - 1/sd[i]^2) * dnorm(x, mean[i], sd[i]) * sd[i]*sqrt(2*pi)}))}
+      # if (length(sd)==1) {
+      #   return(sapply(X = 1:(numIntKnt+2), FUN = function(i) {((x-mean[i])^2/sd^4 - 1/sd^2) * dnorm(x, mean[i], sd) * sd*sqrt(2*pi)}))
+      # }
+      # else {
+        return(sapply(X = 1:(numIntKnt+2), FUN = function(i) {((x-mean[i])^2/sd[i]^4 - 1/sd[i]^2) * dnorm(x, mean[i], sd[i]) * sd[i]*sqrt(2*pi)}))
+      # }
     }
   }
   
@@ -155,7 +171,11 @@ plAFT_RC_TVC_Gaussian_1_autosmooth <- function(tmat, Xmat, Zmat, beta_initial, g
     # iniFit = survreg(Surv(time = time[,1], time2 = time[,2], type = "interval2") ~ X, dist="weibull")
     # beta_old = matrix(iniFit$coef[2:(p+1)],ncol = 1)
     # beta_old = matrix(0,p,1) # alternative initial value for beta
-    beta_old = matrix(beta_initial) # p by 1 matrix
+    if (missing(beta_initial)) {
+      beta_old = matrix(0L, p, 1)
+      cat("beta_initial is not provided. Set beta_initial to", beta_old, ".\n")
+    }
+    else {beta_old = matrix(beta_initial)} # p by 1 matrix
     # theta_old = matrix(1L,numSp,1) # numSp by 1 matrix
     theta_old = matrix(1L,numIntKnt+2,1) # Gaussian basis part, 1 less knots compare to spline basis
     
@@ -188,6 +208,7 @@ plAFT_RC_TVC_Gaussian_1_autosmooth <- function(tmat, Xmat, Zmat, beta_initial, g
     # beta_iter = NULL
     # theta_iter = NULL
     knots_iter = matrix(NA,maxiter,numIntKnt+2)
+    sig_iter = matrix(NA,maxiter,numIntKnt+2)
     
     if (!missing(Zmat) & !missing(gamma_initial) & (dim_Zmat[1]<=n+1)) {
       warning("There is NO time-varying covariates in this dataset!\n")
@@ -249,13 +270,13 @@ plAFT_RC_TVC_Gaussian_1_autosmooth <- function(tmat, Xmat, Zmat, beta_initial, g
       bryKnt = range(ts)
       bin_width = (bryKnt[2] - bryKnt[1]) / (numIntKnt+1)
       gknots = seq(bryKnt[1], bryKnt[2], bin_width)
-      sig = (2/3) * bin_width
+      sig = rep((2/3) * bin_width, times = numIntKnt+2)
       # gauss = pnorm(0,gknots,sig)*sqrt(2*pi*sig^2)
       # gauss = pnorm(bryKnt[1],gknots,sig)*sqrt(2*pi*sig^2) # which one to choose?
     }
     else if (knots_option=="percentile") {
       # different strategy of calculating knots and sigmas
-      gknots = quantile(sort(ts), seq(knots_min_quantile, knots_max_quantile, length.out = numIntKnt+2)/100, type=1)
+      gknots = quantile(ts, seq(knots_min_quantile, knots_max_quantile, length.out = numIntKnt+2)/100, type=1)
       dist = sapply(gknots, function(x) {abs(x - ts)})
       sig = apply(dist, 2, function(x) {quantile(x, sig_coverage) / 2})
     }
@@ -273,7 +294,7 @@ plAFT_RC_TVC_Gaussian_1_autosmooth <- function(tmat, Xmat, Zmat, beta_initial, g
     # # bin_width = (bryKnt[2] - bryKnt[1]) / (numIntKnt+1)
     # # gknots = seq(bryKnt[1], bryKnt[2], bin_width)
     # # gknots = quantile(sort(ts), seq(0,1,length.out = numSp-dgrSp+1), type=1)
-    # # sig = (2/3) * bin_width
+    # # sig = rep((2/3) * bin_width, times = numIntKnt+2)
     # # gauss = pnorm(0,gknots,sig)*sqrt(2*pi*sig^2)
     # 
     # sum(ts>gknots[1]-1.96*sig[1] & ts<gknots[1]+1.96*sig[1])/n
@@ -303,7 +324,7 @@ plAFT_RC_TVC_Gaussian_1_autosmooth <- function(tmat, Xmat, Zmat, beta_initial, g
     
     # Gaussian basis part
     h0ts = Gaussian_basis(x = ts, mean = gknots, sd = sig)%*%theta_old
-    ch0ts = Gaussian_basis_integ1(q = ts, mean = gknots, sd = sig)%*%theta_old
+    ch0ts = Gaussian_basis_integ1(x = ts, mean = gknots, sd = sig)%*%theta_old
     # Jinqing's version
     # h0ts = matrix(0,n,1)
     # ch0ts = matrix(0,n,1)
@@ -330,6 +351,8 @@ plAFT_RC_TVC_Gaussian_1_autosmooth <- function(tmat, Xmat, Zmat, beta_initial, g
     for(k in 1L:maxiter) {
       ########################## Newton step for beta ##########################
       # cat(k,"th iteration.\n")
+      # if (j==2 & k==69) {browser()}
+      # if (j==2 & k==72) {browser()}
       # 0.5. differential spline for gradient and modified Hessian
       # if (n_E==0) {dphi_E = matrix(0,1,numSp)}
       # else {dphi_E = mSpline(ts_E, knots=IntKnt, degree=dgrSp, intercept=TRUE, Boundary.knots=bryKnt, derivs=1)}
@@ -459,11 +482,11 @@ plAFT_RC_TVC_Gaussian_1_autosmooth <- function(tmat, Xmat, Zmat, beta_initial, g
           bryKnt = range(ts)
           bin_width = (bryKnt[2] - bryKnt[1]) / (numIntKnt+1)
           gknots = seq(bryKnt[1], bryKnt[2], bin_width)
-          sig = (2/3) * bin_width
+          sig = rep((2/3) * bin_width, times = numIntKnt+2)
         }
         else if (knots_option=="percentile") {
           # different strategy of calculating knots and sigmas
-          gknots = quantile(sort(ts), seq(knots_min_quantile, knots_max_quantile, length.out = numIntKnt+2)/100, type=1)
+          gknots = quantile(ts, seq(knots_min_quantile, knots_max_quantile, length.out = numIntKnt+2)/100, type=1)
           dist = sapply(gknots, function(x) {abs(x - ts)})
           sig = apply(dist, 2, function(x) {quantile(x, sig_coverage) / 2})
         }
@@ -490,7 +513,7 @@ plAFT_RC_TVC_Gaussian_1_autosmooth <- function(tmat, Xmat, Zmat, beta_initial, g
       
       # Gaussian basis part
       h0ts = Gaussian_basis(x = ts, mean = gknots, sd = sig)%*%theta_old
-      ch0ts = Gaussian_basis_integ1(q = ts, mean = gknots, sd = sig)%*%theta_old
+      ch0ts = Gaussian_basis_integ1(x = ts, mean = gknots, sd = sig)%*%theta_old
       # h0ts = matrix(0,n,1)
       # ch0ts = matrix(0,n,1)
       # for (i in 1:n) { # will improve using apply function
@@ -563,11 +586,11 @@ plAFT_RC_TVC_Gaussian_1_autosmooth <- function(tmat, Xmat, Zmat, beta_initial, g
             bryKnt = range(ts)
             bin_width = (bryKnt[2] - bryKnt[1]) / (numIntKnt+1)
             gknots = seq(bryKnt[1], bryKnt[2], bin_width)
-            sig = (2/3) * bin_width
+            sig = rep((2/3) * bin_width, times = numIntKnt+2)
           }
           else if (knots_option=="percentile") {
             # different strategy of calculating knots and sigmas
-            gknots = quantile(sort(ts), seq(knots_min_quantile, knots_max_quantile, length.out = numIntKnt+2)/100, type=1)
+            gknots = quantile(ts, seq(knots_min_quantile, knots_max_quantile, length.out = numIntKnt+2)/100, type=1)
             dist = sapply(gknots, function(x) {abs(x - ts)})
             sig = apply(dist, 2, function(x) {quantile(x, sig_coverage) / 2})
           }
@@ -594,7 +617,7 @@ plAFT_RC_TVC_Gaussian_1_autosmooth <- function(tmat, Xmat, Zmat, beta_initial, g
         
         # Gaussian basis part
         h0ts = Gaussian_basis(x = ts, mean = gknots, sd = sig)%*%theta_old
-        ch0ts = Gaussian_basis_integ1(q = ts, mean = gknots, sd = sig)%*%theta_old
+        ch0ts = Gaussian_basis_integ1(x = ts, mean = gknots, sd = sig)%*%theta_old
         # h0ts = matrix(0,n,1)
         # ch0ts = matrix(0,n,1)
         # for (i in 1:n) { # will improve using apply function
@@ -621,7 +644,6 @@ plAFT_RC_TVC_Gaussian_1_autosmooth <- function(tmat, Xmat, Zmat, beta_initial, g
       likelihood_beta_iter_after_ls[k] = like_beta_new
       iter_Newton_beta[k] = iteration_beta
       beta_iter[k,] = beta_new
-      
       ########################## Newton step for gamma ##########################
       if (!missing(Zmat) & !missing(gamma_initial) & (dim_Zmat[1]>n+1)) {
         like_gamma_old = like_beta_new
@@ -777,11 +799,11 @@ plAFT_RC_TVC_Gaussian_1_autosmooth <- function(tmat, Xmat, Zmat, beta_initial, g
             bryKnt = range(ts)
             bin_width = (bryKnt[2] - bryKnt[1]) / (numIntKnt+1)
             gknots = seq(bryKnt[1], bryKnt[2], bin_width)
-            sig = (2/3) * bin_width
+            sig = rep((2/3) * bin_width, times = numIntKnt+2)
           }
           else if (knots_option=="percentile") {
             # different strategy of calculating knots and sigmas
-            gknots = quantile(sort(ts), seq(knots_min_quantile, knots_max_quantile, length.out = numIntKnt+2)/100, type=1)
+            gknots = quantile(ts, seq(knots_min_quantile, knots_max_quantile, length.out = numIntKnt+2)/100, type=1)
             dist = sapply(gknots, function(x) {abs(x - ts)})
             sig = apply(dist, 2, function(x) {quantile(x, sig_coverage) / 2})
           }
@@ -808,7 +830,7 @@ plAFT_RC_TVC_Gaussian_1_autosmooth <- function(tmat, Xmat, Zmat, beta_initial, g
         
         # Gaussian basis part
         h0ts = Gaussian_basis(x = ts, mean = gknots, sd = sig)%*%theta_old
-        ch0ts = Gaussian_basis_integ1(q = ts, mean = gknots, sd = sig)%*%theta_old
+        ch0ts = Gaussian_basis_integ1(x = ts, mean = gknots, sd = sig)%*%theta_old
         # h0ts = matrix(0,n,1)
         # ch0ts = matrix(0,n,1)
         # for (i in 1:n) { # will improve using apply function
@@ -881,11 +903,11 @@ plAFT_RC_TVC_Gaussian_1_autosmooth <- function(tmat, Xmat, Zmat, beta_initial, g
               bryKnt = range(ts)
               bin_width = (bryKnt[2] - bryKnt[1]) / (numIntKnt+1)
               gknots = seq(bryKnt[1], bryKnt[2], bin_width)
-              sig = (2/3) * bin_width
+              sig = rep((2/3) * bin_width, times = numIntKnt+2)
             }
             else if (knots_option=="percentile") {
               # different strategy of calculating knots and sigmas
-              gknots = quantile(sort(ts), seq(knots_min_quantile, knots_max_quantile, length.out = numIntKnt+2)/100, type=1)
+              gknots = quantile(ts, seq(knots_min_quantile, knots_max_quantile, length.out = numIntKnt+2)/100, type=1)
               dist = sapply(gknots, function(x) {abs(x - ts)})
               sig = apply(dist, 2, function(x) {quantile(x, sig_coverage) / 2})
             }
@@ -912,7 +934,7 @@ plAFT_RC_TVC_Gaussian_1_autosmooth <- function(tmat, Xmat, Zmat, beta_initial, g
           
           # Gaussian basis part
           h0ts = Gaussian_basis(x = ts, mean = gknots, sd = sig)%*%theta_old
-          ch0ts = Gaussian_basis_integ1(q = ts, mean = gknots, sd = sig)%*%theta_old
+          ch0ts = Gaussian_basis_integ1(x = ts, mean = gknots, sd = sig)%*%theta_old
           # h0ts = matrix(0,n,1)
           # ch0ts = matrix(0,n,1)
           # for (i in 1:n) { # will improve using apply function
@@ -990,7 +1012,7 @@ plAFT_RC_TVC_Gaussian_1_autosmooth <- function(tmat, Xmat, Zmat, beta_initial, g
         num_dots = 5*n
         ts_range = range(ts)
         bin_edges = seq(ts_range[1],ts_range[2],length.out=num_dots+1)
-        bin_middle_points = as.matrix((bin_edges[2:(num_dots+1)] + bin_edges[1:num_dots])/2)
+        bin_middle_points = matrix((bin_edges[2:(num_dots+1)] + bin_edges[1:num_dots])/2)
         ddphi_bin_middle_points = Gaussian_basis_deriv2(x = bin_middle_points, mean = gknots, sd = sig)
         # R = matrix(0,numIntKnt+2,numIntKnt+2)
         # for (u in 1:(numIntKnt+2)) {
@@ -1039,17 +1061,21 @@ plAFT_RC_TVC_Gaussian_1_autosmooth <- function(tmat, Xmat, Zmat, beta_initial, g
       # for (i in 1:n) {
       #   cphi[i,] = t(pnorm(ts[i],gknots,sig)*sqrt(2*pi*sig^2) - gauss)
       # }
-      cphi = Gaussian_basis_integ1(q = ts, mean = gknots, sd = sig)
+      cphi = Gaussian_basis_integ1(x = ts, mean = gknots, sd = sig)
       quan_deno = cphi
       
       nume = colSums(quan_E_nume) - 2*smooth*R%*%theta_old*(R%*%theta_old<=0)+eta
       deno = colSums(quan_deno) + 2*smooth*R%*%theta_old*(R%*%theta_old>0)+eta
+      grad_theta = nume - deno
+      
+      # theta_inc = theta_old / deno * grad_theta
+      # theta_inc[grad_theta > 0 & abs(theta_inc)<1e-3] = (1 / deno * grad_theta)[grad_theta > 0 & abs(theta_inc)<1e-3]
+      # theta_new = theta_old + theta_inc
       
       # 1.5. update theta temporarily
       theta_new = theta_old*(nume/deno)
       theta_inc = theta_new-theta_old
       
-      grad_theta = nume - deno
       grad_theta_iter[k,] = t(grad_theta)
       
       # 1.5. hazard and cumulative hazard
@@ -1062,8 +1088,9 @@ plAFT_RC_TVC_Gaussian_1_autosmooth <- function(tmat, Xmat, Zmat, beta_initial, g
       # ch0ts = cphi%*%theta_new
       
       # Gaussian basis part
-      h0ts = Gaussian_basis(x = ts, mean = gknots, sd = sig)%*%theta_new
-      ch0ts = Gaussian_basis_integ1(q = ts, mean = gknots, sd = sig)%*%theta_new
+      # h0ts = Gaussian_basis(x = ts, mean = gknots, sd = sig)%*%theta_new
+      # ch0ts = Gaussian_basis_integ1(x = ts, mean = gknots, sd = sig)%*%theta_new
+      ch0ts = cphi%*%theta_new
       # h0ts = matrix(0,n,1)
       # ch0ts = matrix(0,n,1)
       # for (i in 1:n) { # will improve using apply function
@@ -1072,7 +1099,8 @@ plAFT_RC_TVC_Gaussian_1_autosmooth <- function(tmat, Xmat, Zmat, beta_initial, g
       # }
       if (n_E==0) {h0ts_E = h0tss_E = 1}
       else {
-        h0ts_E = h0ts[censor_n==1, , drop = FALSE]
+        # h0ts_E = h0ts[censor_n==1, , drop = FALSE]
+        h0ts_E = phi_E%*%theta_new
         h0tss_E = h0ts_E
         h0tss_E[h0tss_E<1e-40] = 1e-40
       }
@@ -1109,8 +1137,9 @@ plAFT_RC_TVC_Gaussian_1_autosmooth <- function(tmat, Xmat, Zmat, beta_initial, g
         # ch0ts = cphi%*%theta_new
         
         # Gaussian basis part
-        h0ts = Gaussian_basis(x = ts, mean = gknots, sd = sig)%*%theta_new
-        ch0ts = Gaussian_basis_integ1(q = ts, mean = gknots, sd = sig)%*%theta_new
+        # h0ts = Gaussian_basis(x = ts, mean = gknots, sd = sig)%*%theta_new
+        # ch0ts = Gaussian_basis_integ1(x = ts, mean = gknots, sd = sig)%*%theta_new
+        ch0ts = cphi%*%theta_new
         # h0ts = matrix(0,n,1)
         # ch0ts = matrix(0,n,1)
         # for (i in 1:n) { # will improve using apply function
@@ -1119,7 +1148,8 @@ plAFT_RC_TVC_Gaussian_1_autosmooth <- function(tmat, Xmat, Zmat, beta_initial, g
         # }
         if (n_E==0) {h0ts_E = h0tss_E = 1}
         else {
-          h0ts_E = h0ts[censor_n==1, , drop = FALSE]
+          # h0ts_E = h0ts[censor_n==1, , drop = FALSE]
+          h0ts_E = phi_E%*%theta_new
           h0tss_E = h0ts_E
           h0tss_E[h0tss_E<1e-40] = 1e-40
         }
@@ -1137,20 +1167,20 @@ plAFT_RC_TVC_Gaussian_1_autosmooth <- function(tmat, Xmat, Zmat, beta_initial, g
       theta_iter[k,] = theta_new
       ts_range_theta_iter[k,] = range(ts)
       
-      knots_iter[k,] = gknots
-      
       iteration_no = k
+      knots_iter[k,] = gknots
+      sig_iter[k,] = sig
       
       if ((all(abs(beta_new-beta_old)>knots_fix_threshold) | all(abs(gamma_new-gamma_old)>knots_fix_threshold)) & k<=knots_fix_iter_no & frequent_knots_update==FALSE) { # 20220208 add frequent_knots_update check
         if (knots_option=="equal_space") {
           bryKnt = range(ts)
           bin_width = (bryKnt[2] - bryKnt[1]) / (numIntKnt+1)
           gknots = seq(bryKnt[1], bryKnt[2], bin_width)
-          sig = (2/3) * bin_width
+          sig = rep((2/3) * bin_width, times = numIntKnt+2)
         }
         else if (knots_option=="percentile") {
           # different strategy of calculating knots and sigmas
-          gknots = quantile(sort(ts), seq(knots_min_quantile, knots_max_quantile, length.out = numIntKnt+2)/100, type=1)
+          gknots = quantile(ts, seq(knots_min_quantile, knots_max_quantile, length.out = numIntKnt+2)/100, type=1)
           dist = sapply(gknots, function(x) {abs(x - ts)})
           sig = apply(dist, 2, function(x) {quantile(x, sig_coverage) / 2})
         }
@@ -1190,6 +1220,7 @@ plAFT_RC_TVC_Gaussian_1_autosmooth <- function(tmat, Xmat, Zmat, beta_initial, g
           beta_old = beta_new
           if (k==knots_fix_iter_no) {theta_old = matrix(1, numIntKnt+2, 1)} # 20220208 inspired by Jun's modification
           else {theta_old = theta_new}
+          theta_old = theta_new
           like_beta_old = like_theta_new
           # print(paste("The penalised likelihood after iteration No.",k," is ",plike_new))
         }
@@ -1205,18 +1236,22 @@ plAFT_RC_TVC_Gaussian_1_autosmooth <- function(tmat, Xmat, Zmat, beta_initial, g
     
     ########################## estimation results ##########################
     time_range = rbind(range(time),range(ts))
-    rownames(time_range) <- c("original time","accelerated time")
+    rownames(time_range) <- c("original time","accel/decel time")
     colnames(time_range) <- c("min","max")
     ts_range_beta_iter = ts_range_beta_iter[1:k,]
     ts_range_theta_iter = ts_range_theta_iter[1:k,]
     knots_iter = knots_iter[1:k,]
+    sig_iter = sig_iter[1:k,]
     if (any(abs(diff(knots_iter[,1]))<=1e-12 & abs(diff(knots_iter[,ncol(knots_iter)]))<=1e-12)) {
       cat("The knots location stops changing since the",max(which(abs(diff(knots_iter[,1]))>1e-12 | abs(diff(knots_iter[,ncol(knots_iter)]))>1e-12))+1,"th iteration.\n")
       # cat("The knots location stops changing since the",max(which(abs(diff(knots_iter[,1]))>.Machine$double.eps | abs(diff(knots_iter[,ncol(knots_iter)]))>.Machine$double.eps))+1,"th iteration.\n")
     }
     multiple_ts_time = diff(range(ts))/diff(range(time))
+    if (multiple_ts_time<1) {
+      cat("This is an accelerated failure time case. The final accelerated time range is",multiple_ts_time,"times that of the original time range.\n")
+    }
     if (multiple_ts_time>1) {
-      warning("This is a decelerated failure time case! The range of the decelerated time is ",multiple_ts_time," times that of the original time!\n")
+      cat("This is a decelerated failure time case. The final decelerated time range is",multiple_ts_time,"times that of the original time range.\n")
     }
     
     grad_beta_iter = grad_beta_iter[1:k,]
@@ -1334,8 +1369,8 @@ plAFT_RC_TVC_Gaussian_1_autosmooth <- function(tmat, Xmat, Zmat, beta_initial, g
       #                      t(-X[rep(seq_len(n),ni), ])%*%(quan_Hessian_gamma_2%*%matrix(1,1,q)*(-Z)) # p by q
       
       if (n_E==0) {X_E_N = matrix(0, 1, p)}
-      else {X_E_N = X_E[rep(seq_len(n_E), ni_E), , drop = FALSE]}
-      X_N = X[rep(seq_len(n), ni), , drop = FALSE]
+      else {X_E_N = X_E[rep(1:n_E, ni_E), , drop = FALSE]}
+      X_N = X[rep(1:n, ni), , drop = FALSE]
       
       Hessian_beta_gamma = t(dts_E_beta)%*%(as.numeric(quan_E_Hessian_gamma_1)*dts_E_gamma) +
         t(-X_E_N)%*%(as.numeric(quan_E_Hessian_gamma_2)*(-Z_E)) - # under construction, think twice of this line
@@ -1365,11 +1400,15 @@ plAFT_RC_TVC_Gaussian_1_autosmooth <- function(tmat, Xmat, Zmat, beta_initial, g
       # if (any(grad_theta<(-1e-1))) { # if else to deal with 0 active constraints
       if (any(grad_theta<0 & theta_hat<1e-2)) { # 20220213
         # U_index_active_constraints = which(grad_theta<(-1e-1))+p+q
-        U_index_active_constraints = which(grad_theta<0 & theta_hat<1e-2)+p+q # 20220213
+        index_active_theta = which(grad_theta<0 & theta_hat<1e-2) # for simulation plotting
+        U_index_active_constraints = index_active_theta+p+q # 20220213
         # U_index_active_constraints = c(4,5)
         U_mat = diag(1L, nrow = p+q+numIntKnt+2)[, -U_index_active_constraints]
       }
-      else {U_mat = diag(1L, nrow = p+q+numIntKnt+2)}
+      else {
+        index_active_theta = NULL
+        U_mat = diag(1L, nrow = p+q+numIntKnt+2)
+      }
     }
     else {
       # full Hessian
@@ -1383,10 +1422,14 @@ plAFT_RC_TVC_Gaussian_1_autosmooth <- function(tmat, Xmat, Zmat, beta_initial, g
       # if (any(grad_theta<(-1e-1))) {
       if (any(grad_theta<0 & theta_hat<1e-2)) { # 20220213
         # U_index_active_constraints = which(grad_theta<(-1e-1))+p
-        U_index_active_constraints = which(grad_theta<0 & theta_hat<1e-2)+p # 20220213
+        index_active_theta = which(grad_theta<0 & theta_hat<1e-2) # for simulation plotting
+        U_index_active_constraints = index_active_theta+p # 20220213
         U_mat = diag(1L, nrow = p+numIntKnt+2)[, -U_index_active_constraints]
       }
-      else {U_mat = diag(1L, nrow = p+numIntKnt+2)}
+      else {
+        index_active_theta = NULL
+        U_mat = diag(1L, nrow = p+numIntKnt+2)
+      }
     }
     
     # variance-covariance matrix calculation
@@ -1408,6 +1451,7 @@ plAFT_RC_TVC_Gaussian_1_autosmooth <- function(tmat, Xmat, Zmat, beta_initial, g
       p_value_gamma = 2*pnorm(abs(Z_score_gamma), lower.tail = FALSE)
       # significance_gamma = rep(TRUE,1)
       # significance_gamma[p_value_gamma>=0.05] = FALSE
+      cov_mat_theta = cov_mat[(p+q+1):(p+q+numIntKnt+2),(p+q+1):(p+q+numIntKnt+2)] # for simulation plotting
       asym_var_theta = as.matrix(var_diag[(p+q+1):(p+q+numIntKnt+2)])
       asym_std_theta = sqrt(asym_var_theta)
       Z_score_theta = theta_hat / sqrt(asym_var_theta)
@@ -1420,6 +1464,7 @@ plAFT_RC_TVC_Gaussian_1_autosmooth <- function(tmat, Xmat, Zmat, beta_initial, g
       rownames(table_coef)[(p+q+1):(p+q+numIntKnt+2)] <- c(sprintf("basis_function_%d", 1:(numIntKnt+2)))
     }
     else {
+      cov_mat_theta = cov_mat[(p+1):(p+numIntKnt+2),(p+1):(p+numIntKnt+2)] # for simulation plotting
       asym_var_theta = as.matrix(var_diag[(p+1):(p+numIntKnt+2)])
       asym_std_theta = sqrt(asym_var_theta)
       Z_score_theta = theta_hat / sqrt(asym_var_theta)
@@ -1522,95 +1567,223 @@ plAFT_RC_TVC_Gaussian_1_autosmooth <- function(tmat, Xmat, Zmat, beta_initial, g
     }
   }
   smooth_iter = smooth_iter[1:j,]
-  
+  smooth_iter = cbind(1:length(smooth_iter), smooth_iter)
+  colnames(smooth_iter) <- c("inner loop index","smoothing parameter")
   
   # browser()
   ################################# plots #################################
   if (draw_plot==TRUE) {
-    # hazard plot
-    # plots of final accelerated time
-    # plot_hazard = cbind(ts, Gaussian_basis(x = ts, mean = gknots, sd = sig)%*%theta_hat)
-    # plot_hazard = plot_hazard[order(plot_hazard[,1]), ] # sort according to ascending order of ts
-    # plot(plot_hazard[,1], plot_hazard[,2], xlim = c(0,max(plot_hazard[,1])), ylim = c(0,max(plot_hazard[,2])), main = "hazard plot", xlab = "accelerated/decelerated time", ylab = "hazard")
-    plot(ts, Gaussian_basis(x = ts, mean = gknots, sd = sig)%*%theta_hat, xlim = c(0,max(ts)), main = "hazard plot", xlab = "accelerated/decelerated time", ylab = "hazard")
-    # smooth curve connecting data points
-    lines(seq(0,max(ts),length.out=max(1000,10*n)), Gaussian_basis(x = as.matrix(seq(0,max(ts),length.out=max(1000,10*n))), mean = gknots, sd = sig)%*%theta_hat)
     
-    # survival plot
-    # plots of final accelerated time
-    # plot_survival = cbind(ts, exp(-Gaussian_basis_integ1(q = ts, mean = gknots, sd = sig)%*%theta_hat))
-    # plot_survival = plot_survival[order(plot_survival[,1]), ] # sort according to ascending order of ts
-    # plot(plot_survival[,1], plot_survival[,2], xlim = c(0,max(plot_hazard[,1])), ylim = c(0,1), main = "Survival plot", xlab = "accelerated/decelerated time", ylab = "Survival")
-    plot(ts, exp(-Gaussian_basis_integ1(q = ts, mean = gknots, sd = sig)%*%theta_hat), xlim = c(0,max(ts)), ylim = c(0,1), main = "Survival plot", xlab = "accelerated/decelerated time", ylab = "Survival")
-    # smooth curve connecting data points
-    lines(seq(0,max(ts),length.out=max(1000,10*n)), exp(-Gaussian_basis_integ1(q = as.matrix(seq(0,max(ts),length.out=max(1000,10*n))), mean = gknots, sd = sig)%*%theta_hat))
-    
-    # below plots for original time may be incorrect
+    ts_plot = matrix(seq(1e-10, max(ts), length.out = max(1000,10*n)))
     if (knots_option=="equal_space") {
-      bryKnt_0 = range(time)
-      bin_width_0 = (bryKnt_0[2] - bryKnt_0[1]) / (numIntKnt+1)
-      gknots_0 = seq(bryKnt_0[1], bryKnt_0[2], bin_width_0)
-      sig_0 = (2/3) * bin_width_0
+      bryKnt_plot = range(ts_plot)
+      bin_width_plot = (bryKnt_plot[2] - bryKnt_plot[1]) / (numIntKnt+1)
+      gknots_plot = seq(bryKnt_plot[1], bryKnt_plot[2], bin_width_plot)
+      sig_plot = rep((2/3) * bin_width_plot, times = numIntKnt+2)
     }
     else if (knots_option=="percentile") {
-      gknots_0 = quantile(sort(time), seq(knots_min_quantile, knots_max_quantile, length.out = numIntKnt+2)/100, type=1)
-      dist_0 = sapply(gknots_0, function(x) {abs(x - time)})
-      sig_0 = apply(dist_0, 2, function(x) {quantile(x, sig_coverage) / 2})
+      gknots_plot = quantile(ts_plot, seq(knots_min_quantile, knots_max_quantile, length.out = numIntKnt+2)/100, type=1)
+      dist_plot = sapply(gknots_plot, function(x) {abs(x - ts_plot)})
+      sig_plot = apply(dist_plot, 2, function(x) {quantile(x, sig_coverage) / 2})
     }
-    # baseline hazard plot
-    # plots of original time
-    # plot_hazard_0 = cbind(time,Gaussian_basis(x = time, mean = gknots_0, sd = sig_0)%*%theta_hat)
-    # plot_hazard_0 = plot_hazard_0[order(plot_hazard_0[,1]), ] # sort according to ascending order of time
-    # plot(plot_hazard_0[,1], plot_hazard_0[,2], xlim = c(0,max(plot_hazard_0[,1])), ylim = c(0,max(plot_hazard_0[,2])), main = "baseline hazard plot", xlab = "time", ylab = "baseline hazard")
-    plot(time, Gaussian_basis(x = time, mean = gknots_0, sd = sig_0)%*%theta_hat, xlim = c(0,max(time)), main = "baseline hazard plot", xlab = "time", ylab = "baseline hazard")
-    # smooth curve connecting data points
-    lines(seq(0,max(time),length.out=max(1000,10*n)), Gaussian_basis(x = as.matrix(seq(0,max(time),length.out=max(1000,10*n))), mean = gknots_0, sd = sig_0)%*%theta_hat)
     
-    # baseline survival plot
-    # plots of original time
-    # plot_survival_0 = cbind(time,exp(-Gaussian_basis_integ1(q = time, mean = gknots_0, sd = sig_0)%*%theta_hat))
-    # plot_survival_0 = plot_survival_0[order(plot_survival_0[,1]), ] # sort according to ascending order of time
-    # plot(plot_survival_0[,1], plot_survival_0[,2], xlim = c(0,max(plot_hazard_0[,1])), ylim = c(0,1), main = "baseline Survival plot", xlab = "time", ylab = "baseline Survival")
-    plot(time, exp(-Gaussian_basis_integ1(q = time, mean = gknots_0, sd = sig_0)%*%theta_hat), xlim = c(0,max(time)), ylim = c(0,1), main = "baseline Survival plot", xlab = "time", ylab = "baseline Survival")
-    # smooth curve connecting data points
-    lines(seq(0,max(time),length.out=max(1000,10*n)), exp(-Gaussian_basis_integ1(q = as.matrix(seq(0,max(time),length.out=max(1000,10*n))), mean = gknots_0, sd = sig_0)%*%theta_hat))
+    # if (!missing(Zmat) & !missing(gamma_initial) & (dim_Zmat[1]>n+1)) {cov_mat_theta = cov_mat[(p+q+1):(p+q+numIntKnt+2),(p+q+1):(p+q+numIntKnt+2)]}
+    # else {cov_mat_theta = cov_mat[(p+1):(p+numIntKnt+2),(p+1):(p+numIntKnt+2)]}
+    
+    phi_plot = Gaussian_basis(x = ts_plot, mean = gknots_plot, sd = sig_plot)
+    # h0ts_plot = phi_plot%*%theta_hat
+    
+    Phi_plot = Gaussian_basis_integ1(x = ts_plot, mean = gknots_plot, sd = sig_plot)
+    # S0ts_plot = exp(-Phi_plot%*%theta_hat)
+    
+    if (length(index_active_theta)>0) {
+      cov_mat_theta_no_active = cov_mat_theta[-index_active_theta,-index_active_theta]
+      phi_plot_no_active = phi_plot[,-index_active_theta]
+      h0ts_plot_no_active = phi_plot_no_active%*%theta_hat[-index_active_theta]
+      Phi_plot_no_active = Phi_plot[,-index_active_theta]
+      S0ts_plot_no_active = exp(-Phi_plot_no_active%*%theta_hat[-index_active_theta])
+    }
+    else {
+      cov_mat_theta_no_active = cov_mat_theta
+      phi_plot_no_active = phi_plot
+      h0ts_plot_no_active = phi_plot%*%theta_hat
+      Phi_plot_no_active = Phi_plot
+      S0ts_plot_no_active = exp(-Phi_plot%*%theta_hat)
+    }
+    # baseline hazard plot of accelerated/decelerated time scale
+    G_h0ts_plot = log(h0ts_plot_no_active)
+    dG_dtheta_h0ts_plot = (1/h0ts_plot_no_active)%*%matrix(1,1,ncol(phi_plot_no_active)) * phi_plot_no_active
+    asym_std_G_h0ts_plot = sqrt(diag(dG_dtheta_h0ts_plot%*%cov_mat_theta_no_active%*%t(dG_dtheta_h0ts_plot)))
+    CI_G_h0ts_plot = cbind(G_h0ts_plot-qnorm(1-plot_sig_lv/2)*asym_std_G_h0ts_plot, G_h0ts_plot+qnorm(1-plot_sig_lv/2)*asym_std_G_h0ts_plot)
+    CI_h0ts_plot = exp(CI_G_h0ts_plot)
+    
+    # plot(ts_plot, h0ts_plot_no_active, xlim = c(0,max(ts_plot)), ylim = c(0,max(CI_h0ts_plot[,2])), main = "baseline hazard plot", xlab = expression(accelerated/decelerated~time~"t*"), ylab = expression(baseline~hazard~lambda[0]("t*")), type = "l", lty = "solid")
+    plot(ts_plot, h0ts_plot_no_active, xlim = c(0,max(ts_plot)), ylim = c(0,max(CI_h0ts_plot[,2])), main = "baseline hazard plot", xlab = expression(kappa(t)), ylab = expression(lambda[0](kappa(t))), mgp=c(2,1,0), type = "l", lty = "solid") # variables for the paper
+    grid(lty = "solid")
+    polygon(c(ts_plot,rev(ts_plot)), c(CI_h0ts_plot[,1], rev(CI_h0ts_plot[,2])), col = "#6BD7AF", lty = 0)
+    lines(ts_plot, h0ts_plot_no_active, type = "l", lty = "solid", col = "black")
+    lines(ts_plot, CI_h0ts_plot[,1], type = "l", lty = "dashed", col = "black")
+    lines(ts_plot, CI_h0ts_plot[,2], type = "l", lty = "dashed", col = "black")
+    legend("topleft", legend = c("baseline hazard", paste0((1-plot_sig_lv)*100,"% ASYM CI")), col = c("black","black"), lty = c("solid","dashed"), cex = 0.6)
+    # legend("bottomright", legend = c("baseline hazard", paste0((1-plot_sig_lv)*100,"% ASYM CI")), col = c("black","black"), lty = c("solid","dashed"), cex = 0.5)
+    # baseline survival plot of accelerated/decelerated time scale
+    G_S0ts_plot = log(S0ts_plot_no_active/(1-S0ts_plot_no_active))
+    dG_dtheta_S0ts_plot = -(1/(1-S0ts_plot_no_active))%*%matrix(1,1,ncol(Phi_plot_no_active)) * Phi_plot_no_active
+    asym_std_G_S0ts_plot = sqrt(diag(dG_dtheta_S0ts_plot%*%cov_mat_theta_no_active%*%t(dG_dtheta_S0ts_plot)))
+    CI_G_S0ts_plot = cbind(G_S0ts_plot-qnorm(1-plot_sig_lv/2)*asym_std_G_S0ts_plot, G_S0ts_plot+qnorm(1-plot_sig_lv/2)*asym_std_G_S0ts_plot)
+    CI_S0ts_plot = 1/(exp(-CI_G_S0ts_plot)+1)
+    
+    # plot(ts_plot, S0ts_plot_no_active, xlim = c(0,max(ts_plot)), ylim = c(0,1), main = "baseline survival plot", xlab = expression(accelerated/decelerated~time~"t*"), ylab = expression(baseline~survival~S[0]("t*")), type = "l", lty = "solid")
+    plot(ts_plot, S0ts_plot_no_active, xlim = c(0,max(ts_plot)), ylim = c(0,1), main = "baseline survival plot", xlab = expression(kappa(t)), ylab = expression(S[0](kappa(t))), mgp=c(2,1,0), type = "l", lty = "solid") # variables for the paper
+    grid(lty = "solid")
+    polygon(c(ts_plot,rev(ts_plot)), c(CI_S0ts_plot[,1], rev(CI_S0ts_plot[,2])), col = "#6BD7AF", lty = 0)
+    lines(ts_plot, S0ts_plot_no_active, type = "l", lty = "solid", col = "black")
+    lines(ts_plot, CI_S0ts_plot[,1], type = "l", lty = "dashed", col = "black")
+    lines(ts_plot, CI_S0ts_plot[,2], type = "l", lty = "dashed", col = "black")
+    # legend("bottomleft", legend = c("baseline survival", paste0((1-plot_sig_lv)*100,"% ASYM CI")), col = c("black","black"), lty = c("solid","dashed"), cex = 0.5)
+    legend("topright", legend = c("baseline survival", paste0((1-plot_sig_lv)*100,"% ASYM CI")), col = c("black","black"), lty = c("solid","dashed"), cex = 0.6)
+    
+    # # hazard plot
+    # # plots of final accelerated time
+    # # plot_hazard = cbind(ts, Gaussian_basis(x = ts, mean = gknots, sd = sig)%*%theta_hat)
+    # # plot_hazard = plot_hazard[order(plot_hazard[,1]), ] # sort according to ascending order of ts
+    # # plot(plot_hazard[,1], plot_hazard[,2], xlim = c(0,max(plot_hazard[,1])), ylim = c(0,max(plot_hazard[,2])), main = "hazard plot", xlab = "accelerated/decelerated time", ylab = "hazard")
+    # plot(ts, Gaussian_basis(x = ts, mean = gknots, sd = sig)%*%theta_hat, xlim = c(0,max(ts)), main = "hazard plot", xlab = "accelerated/decelerated time", ylab = "hazard")
+    # # smooth curve connecting data points
+    # lines(seq(0,max(ts),length.out=max(1000,10*n)), Gaussian_basis(x = as.matrix(seq(0,max(ts),length.out=max(1000,10*n))), mean = gknots, sd = sig)%*%theta_hat)
+    # 
+    # # survival plot
+    # # plots of final accelerated time
+    # # plot_survival = cbind(ts, exp(-Gaussian_basis_integ1(x = ts, mean = gknots, sd = sig)%*%theta_hat))
+    # # plot_survival = plot_survival[order(plot_survival[,1]), ] # sort according to ascending order of ts
+    # # plot(plot_survival[,1], plot_survival[,2], xlim = c(0,max(plot_hazard[,1])), ylim = c(0,1), main = "Survival plot", xlab = "accelerated/decelerated time", ylab = "Survival")
+    # plot(ts, exp(-Gaussian_basis_integ1(x = ts, mean = gknots, sd = sig)%*%theta_hat), xlim = c(0,max(ts)), ylim = c(0,1), main = "Survival plot", xlab = "accelerated/decelerated time", ylab = "Survival")
+    # # smooth curve connecting data points
+    # lines(seq(0,max(ts),length.out=max(1000,10*n)), exp(-Gaussian_basis_integ1(x = as.matrix(seq(0,max(ts),length.out=max(1000,10*n))), mean = gknots, sd = sig)%*%theta_hat))
+    # 
+    # # below plots for original time may be incorrect
+    # if (knots_option=="equal_space") {
+    #   bryKnt_0 = range(time)
+    #   bin_width_0 = (bryKnt_0[2] - bryKnt_0[1]) / (numIntKnt+1)
+    #   gknots_0 = seq(bryKnt_0[1], bryKnt_0[2], bin_width_0)
+    #   sig_0 = rep((2/3) * bin_width_0, times = numIntKnt+2)
+    # }
+    # else if (knots_option=="percentile") {
+    #   gknots_0 = quantile(time, seq(knots_min_quantile, knots_max_quantile, length.out = numIntKnt+2)/100, type=1)
+    #   dist_0 = sapply(gknots_0, function(x) {abs(x - time)})
+    #   sig_0 = apply(dist_0, 2, function(x) {quantile(x, sig_coverage) / 2})
+    # }
+    # # baseline hazard plot
+    # # plots of original time
+    # # plot_hazard_0 = cbind(time,Gaussian_basis(x = time, mean = gknots_0, sd = sig_0)%*%theta_hat)
+    # # plot_hazard_0 = plot_hazard_0[order(plot_hazard_0[,1]), ] # sort according to ascending order of time
+    # # plot(plot_hazard_0[,1], plot_hazard_0[,2], xlim = c(0,max(plot_hazard_0[,1])), ylim = c(0,max(plot_hazard_0[,2])), main = "baseline hazard plot", xlab = "time", ylab = "baseline hazard")
+    # plot(time, Gaussian_basis(x = time, mean = gknots_0, sd = sig_0)%*%theta_hat, xlim = c(0,max(time)), main = "baseline hazard plot", xlab = "time", ylab = "baseline hazard")
+    # # smooth curve connecting data points
+    # lines(seq(0,max(time),length.out=max(1000,10*n)), Gaussian_basis(x = as.matrix(seq(0,max(time),length.out=max(1000,10*n))), mean = gknots_0, sd = sig_0)%*%theta_hat)
+    # 
+    # # baseline survival plot
+    # # plots of original time
+    # # plot_survival_0 = cbind(time,exp(-Gaussian_basis_integ1(x = time, mean = gknots_0, sd = sig_0)%*%theta_hat))
+    # # plot_survival_0 = plot_survival_0[order(plot_survival_0[,1]), ] # sort according to ascending order of time
+    # # plot(plot_survival_0[,1], plot_survival_0[,2], xlim = c(0,max(plot_hazard_0[,1])), ylim = c(0,1), main = "baseline Survival plot", xlab = "time", ylab = "baseline Survival")
+    # plot(time, exp(-Gaussian_basis_integ1(x = time, mean = gknots_0, sd = sig_0)%*%theta_hat), xlim = c(0,max(time)), ylim = c(0,1), main = "baseline Survival plot", xlab = "time", ylab = "baseline Survival")
+    # # smooth curve connecting data points
+    # lines(seq(0,max(time),length.out=max(1000,10*n)), exp(-Gaussian_basis_integ1(x = as.matrix(seq(0,max(time),length.out=max(1000,10*n))), mean = gknots_0, sd = sig_0)%*%theta_hat))
   }
   
   # browser()
   ############################### Output ###############################
+  estimation_result = list()
   if (!missing(Zmat) & !missing(gamma_initial) & (dim_Zmat[1]>n+1)) {
-    return(list(beta_hat=beta_hat,gamma_hat=gamma_hat,theta_hat=theta_hat,
-                asym_var_beta=asym_var_beta,asym_var_gamma=asym_var_gamma,asym_var_theta=asym_var_theta,
-                asym_std_beta=asym_std_beta,asym_std_gamma=asym_std_gamma,asym_std_theta=asym_std_theta,
-                Z_score_beta=Z_score_beta,Z_score_gamma=Z_score_gamma,Z_score_theta=Z_score_theta,
-                p_value_beta=p_value_beta,p_value_gamma=p_value_gamma,p_value_theta=p_value_theta,
-                table_coef=table_coef,
-                smooth_hat=smooth_hat, smooth_iter=smooth_iter,
-                cvg=cvg,time_range=time_range,multiple_ts_time=multiple_ts_time,knots_iter=knots_iter,
-                ts_range_beta_iter=ts_range_beta_iter,ts_range_gamma_iter=ts_range_gamma_iter,ts_range_theta_iter=ts_range_theta_iter,
-                iteration_no=iteration_no,
-                grad_beta_iter=grad_beta_iter,grad_gamma_iter=grad_gamma_iter,grad_theta_iter=grad_theta_iter,
-                Hes_beta_iter=Hes_beta_iter,det_Hes_beta_iter=det_Hes_beta_iter,eigenvl_Hes_beta_iter=eigenvl_Hes_beta_iter,
-                Hes_gamma_iter=Hes_gamma_iter,det_Hes_gamma_iter=det_Hes_gamma_iter,eigenvl_Hes_gamma_iter=eigenvl_Hes_gamma_iter,
-                Hes_beta_final=Hes_beta,Hes_gamma_final=Hes_gamma,
-                beta_iter=beta_iter,gamma_iter=gamma_iter,theta_iter=theta_iter)) #20181129
+    estimation_result$gamma_hat = gamma_hat
+    estimation_result$asym_var_gamma = asym_var_gamma
+    estimation_result$asym_std_gamma = asym_std_gamma
+    estimation_result$Z_score_gamma = Z_score_gamma
+    estimation_result$p_value_gamma = p_value_gamma
+    
+    estimation_result$gamma_iter = gamma_iter
+    estimation_result$grad_gamma_iter = grad_gamma_iter
+    estimation_result$Hes_gamma_final = Hes_gamma
+    estimation_result$Hes_gamma_iter = Hes_gamma_iter
+    estimation_result$det_Hes_gamma_iter = det_Hes_gamma_iter
+    estimation_result$eigenvl_Hes_gamma_iter = eigenvl_Hes_gamma_iter
+    estimation_result$ts_range_gamma_iter = ts_range_gamma_iter
   }
-  else {
-    return(list(beta_hat=beta_hat,theta_hat=theta_hat,
-                asym_var_beta=asym_var_beta,asym_var_theta=asym_var_theta,
-                asym_std_beta=asym_std_beta,asym_std_theta=asym_std_theta,
-                Z_score_beta=Z_score_beta,Z_score_theta=Z_score_theta,
-                p_value_beta=p_value_beta,p_value_theta=p_value_theta,
-                table_coef=table_coef,
-                smooth_hat=smooth_hat, smooth_iter=smooth_iter,
-                cvg=cvg,time_range=time_range,multiple_ts_time=multiple_ts_time,knots_iter=knots_iter,
-                ts_range_beta_iter=ts_range_beta_iter,ts_range_theta_iter=ts_range_theta_iter,
-                iteration_no=iteration_no,
-                grad_beta_iter=grad_beta_iter,grad_theta_iter=grad_theta_iter,
-                Hes_beta_iter=Hes_beta_iter,det_Hes_beta_iter=det_Hes_beta_iter,eigenvl_Hes_beta_iter=eigenvl_Hes_beta_iter,
-                Hes_beta_final=Hes_beta,
-                beta_iter=beta_iter,theta_iter=theta_iter)) #20181129
-  }
-  # return(list(beta=beta_hat,theta=theta_hat,beta_ASD=ASD_beta,h0_ASD=ASD_h0,h0=h0_hat_plot,theta_ASD=ASD_theta,h0_lower=h0_hat_plot_a_lower,h0_upper=h0_hat_plot_a_upper,beta_gradient=dbeta,theta_gradient=dtheta,penlike=penlike_theta_iter_after_ls))  #,"tstar"=t))
+  
+  estimation_result$beta_hat = beta_hat
+  estimation_result$theta_hat = theta_hat
+  estimation_result$asym_var_beta = asym_var_beta
+  estimation_result$asym_var_theta = asym_var_theta
+  estimation_result$asym_std_beta = asym_std_beta
+  estimation_result$asym_std_theta = asym_std_theta
+  estimation_result$Z_score_beta = Z_score_beta
+  estimation_result$Z_score_theta = Z_score_theta
+  estimation_result$p_value_beta = p_value_beta
+  estimation_result$p_value_theta = p_value_theta
+  estimation_result$table_coef = table_coef
+  estimation_result$smooth_hat = smooth_hat
+  
+  estimation_result$smooth_iter = smooth_iter
+  estimation_result$ts_range_beta_iter = ts_range_beta_iter
+  estimation_result$ts_range_theta_iter = ts_range_theta_iter
+  estimation_result$beta_iter = beta_iter
+  estimation_result$theta_iter = theta_iter
+  estimation_result$grad_beta_iter = grad_beta_iter
+  estimation_result$grad_theta_iter = grad_theta_iter
+  estimation_result$Hes_beta_final = Hes_beta
+  estimation_result$Hes_beta_iter = Hes_beta_iter
+  estimation_result$det_Hes_beta_iter = det_Hes_beta_iter
+  estimation_result$eigenvl_Hes_beta_iter = eigenvl_Hes_beta_iter
+  
+  estimation_result$iteration_no = iteration_no
+  estimation_result$cvg = cvg
+  estimation_result$time_range = time_range
+  estimation_result$multiple_ts_time = multiple_ts_time
+  estimation_result$knots_iter = knots_iter # for simulation plotting
+  estimation_result$sig_iter = sig_iter # for simulation plotting
+  estimation_result$cov_mat_theta = cov_mat_theta # for simulation plotting
+  estimation_result$index_active_theta = index_active_theta # for simulation plotting
+  return(estimation_result)
+  
+  
+  # if (!missing(Zmat) & !missing(gamma_initial) & (dim_Zmat[1]>n+1)) {
+  #   return(list(beta_hat=beta_hat,gamma_hat=gamma_hat,theta_hat=theta_hat,
+  #               cov_mat_theta = cov_mat_theta, index_active_theta = index_active_theta,
+  #               asym_var_beta=asym_var_beta,asym_var_gamma=asym_var_gamma,asym_var_theta=asym_var_theta,
+  #               asym_std_beta=asym_std_beta,asym_std_gamma=asym_std_gamma,asym_std_theta=asym_std_theta,
+  #               Z_score_beta=Z_score_beta,Z_score_gamma=Z_score_gamma,Z_score_theta=Z_score_theta,
+  #               p_value_beta=p_value_beta,p_value_gamma=p_value_gamma,p_value_theta=p_value_theta,
+  #               table_coef=table_coef,
+  #               smooth_hat=smooth_hat, smooth_iter=smooth_iter,
+  #               cvg=cvg,time_range=time_range,multiple_ts_time=multiple_ts_time,
+  #               knots_iter=knots_iter,sig_iter=sig_iter,
+  #               ts_range_beta_iter=ts_range_beta_iter,ts_range_gamma_iter=ts_range_gamma_iter,ts_range_theta_iter=ts_range_theta_iter,
+  #               iteration_no=iteration_no,
+  #               grad_beta_iter=grad_beta_iter,grad_gamma_iter=grad_gamma_iter,grad_theta_iter=grad_theta_iter,
+  #               Hes_beta_iter=Hes_beta_iter,det_Hes_beta_iter=det_Hes_beta_iter,eigenvl_Hes_beta_iter=eigenvl_Hes_beta_iter,
+  #               Hes_gamma_iter=Hes_gamma_iter,det_Hes_gamma_iter=det_Hes_gamma_iter,eigenvl_Hes_gamma_iter=eigenvl_Hes_gamma_iter,
+  #               Hes_beta_final=Hes_beta,Hes_gamma_final=Hes_gamma,
+  #               beta_iter=beta_iter,gamma_iter=gamma_iter,theta_iter=theta_iter)) #20181129
+  # }
+  # else {
+  #   return(list(beta_hat=beta_hat,theta_hat=theta_hat,
+  #               cov_mat_theta = cov_mat_theta, index_active_theta = index_active_theta,
+  #               asym_var_beta=asym_var_beta,asym_var_theta=asym_var_theta,
+  #               asym_std_beta=asym_std_beta,asym_std_theta=asym_std_theta,
+  #               Z_score_beta=Z_score_beta,Z_score_theta=Z_score_theta,
+  #               p_value_beta=p_value_beta,p_value_theta=p_value_theta,
+  #               table_coef=table_coef,
+  #               smooth_hat=smooth_hat, smooth_iter=smooth_iter,
+  #               cvg=cvg,time_range=time_range,multiple_ts_time=multiple_ts_time,
+  #               knots_iter=knots_iter,sig_iter=sig_iter,
+  #               ts_range_beta_iter=ts_range_beta_iter,ts_range_theta_iter=ts_range_theta_iter,
+  #               iteration_no=iteration_no,
+  #               grad_beta_iter=grad_beta_iter,grad_theta_iter=grad_theta_iter,
+  #               Hes_beta_iter=Hes_beta_iter,det_Hes_beta_iter=det_Hes_beta_iter,eigenvl_Hes_beta_iter=eigenvl_Hes_beta_iter,
+  #               Hes_beta_final=Hes_beta,
+  #               beta_iter=beta_iter,theta_iter=theta_iter)) #20181129
+  # }
+  
   # message("No. of iterations to convergence is ",k)
 }

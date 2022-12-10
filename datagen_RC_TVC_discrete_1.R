@@ -73,11 +73,14 @@ datagen_RC_TVC_discrete_1 <- function(n = 100, beta = c(1,-1), gamma = -0.1, t_t
     
     treat_prop = sum(Zmat[,2]==2)/n
     
-    indicator_N = rep(indicator, times = tapply(Zmat[,2],Zmat[,1],FUN = max))
+    n_i = tapply(Zmat[,2],Zmat[,1],FUN = max)
+    indicator_N = rep(indicator, times = n_i)
     event_treated_prop = sum(indicator_N==1 & Zmat[,5]==1) / n
     
+    long_data = data.frame(id = Zmat[,1], follow_up = rep(y,n_i), start = Zmat[,3], end = Zmat[,4], status = indicator_N, X_1 = rep(X_1,n_i), X_2 = rep(X_3,n_i), Z = Zmat[,5])
+
     if (event_treated_prop==0) {warning("The generated dataset doesn't contain any event cases with time varying covariates! Please rerun the code and generate a different dataset!\n")}
-    return(list(tmat=tmat, Xmat=Xmat, Zmat=Zmat, range_t=range_t, range_y=range_y, censor_prop=censor_prop, treat_prop=treat_prop, event_treated_prop=event_treated_prop))
+    return(list(tmat=tmat, Xmat=Xmat, Zmat=Zmat, long_data=long_data, range_t=range_t, range_y=range_y, censor_prop=censor_prop, treat_prop=treat_prop, event_treated_prop=event_treated_prop))
   }
   else {
     return(list(tmat=tmat, Xmat=Xmat, range_t=range_t, range_y=range_y, censor_prop=censor_prop))
